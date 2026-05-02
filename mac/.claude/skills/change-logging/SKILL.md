@@ -39,6 +39,13 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.cursor/skills/change-logging/scripts/log-change.sh config ~/.zshrc "Added ~/.local/bin to PATH"
 ```
 
+Use the modified file or persistent resource as the target, not an API name, domain, or logical label. For macOS defaults changes, target the backing plist:
+
+```bash
+defaults write com.todesktop.230313mzl4w4u92 ApplePressAndHoldEnabled -bool false
+~/.cursor/skills/change-logging/scripts/log-change.sh config ~/Library/Preferences/com.todesktop.230313mzl4w4u92.plist "Disabled Cursor press-and-hold alternate character popup"
+```
+
 6. For dotfiles/config changes mirrored under `/Users/sammefford/projects/sammefford/mac`, make one small Git commit per logical change and push it, when the current user request authorizes the change. Before committing, run `git status`, review the relevant diff, and stage only the intended `mac/` paths. Never commit files containing secrets, tokens, credentials, private keys, or unrelated local changes.
 
 ## Log Locations
