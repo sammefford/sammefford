@@ -1,0 +1,5 @@
+{
+  "session-start": "/Users/sammefford/.local/bin/claude-cmux-hook session-start",
+  "notification": "/Users/sammefford/.local/bin/claude-cmux-hook notification",
+  "stop": "/Users/sammefford/.local/bin/claude-cmux-hook stop"
+}

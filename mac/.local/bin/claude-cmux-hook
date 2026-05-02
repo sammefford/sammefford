@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+event="${1:-unknown}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+log_dir="$state_home/claude-hooks"
+mkdir -p "$log_dir"
+
+payload_file="$(mktemp "${TMPDIR:-/tmp}/claude-hook.XXXXXX")"
+trap 'rm -f "$payload_file"' EXIT
+cat > "$payload_file"
+
+find_cmux() {
+  if command -v cmux >/dev/null 2>&1; then
+    command -v cmux
+    return 0
+  fi
+
+  local candidate
+  for candidate in \
+    "/Applications/cmux.app/Contents/Resources/bin/cmux" \
+    "/Applications/cmux.app/Contents/MacOS/cmux"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+{
+  printf -- '---\n'
+  printf 'received_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'event=%s\n' "$event"
+  printf 'cwd=%s\n' "$PWD"
+  printf 'payload=\n'
+  sed 's/^/  /' "$payload_file"
+  printf '\n'
+} >> "$log_dir/events.log"
+
+cmux_bin="$(find_cmux || true)"
+if [[ -n "$cmux_bin" ]]; then
+  if ! "$cmux_bin" claude-hook "$event" < "$payload_file" >> "$log_dir/cmux.log" 2>&1; then
+    printf 'cmux_forward_failed_at=%s event=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$event" >> "$log_dir/events.log"
+  fi
+fi
