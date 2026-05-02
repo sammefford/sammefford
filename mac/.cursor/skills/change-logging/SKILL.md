@@ -25,12 +25,12 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.cursor/skills/change-logging/scripts/snapshot-config.sh ~/.zshrc "Short reason"
 ```
 
-4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford` exists, mirror the current file there before editing so Git can show the change. Preserve the home-relative path when practical:
+4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the current file there before editing so Git can show the change. Preserve the home-relative path under `mac/`:
 
 ```text
-~/.zshrc                 -> /Users/sammefford/projects/sammefford/.zshrc
-~/.claude/hooks.json     -> /Users/sammefford/projects/sammefford/.claude/hooks.json
-~/.local/bin/tool-name   -> /Users/sammefford/projects/sammefford/.local/bin/tool-name
+~/.zshrc                 -> /Users/sammefford/projects/sammefford/mac/.zshrc
+~/.claude/hooks.json     -> /Users/sammefford/projects/sammefford/mac/.claude/hooks.json
+~/.local/bin/tool-name   -> /Users/sammefford/projects/sammefford/mac/.local/bin/tool-name
 ```
 
 5. After an important persistent change, record a short note:
@@ -38,6 +38,8 @@ If wrapping would make the approval less clear, run the real command directly an
 ```bash
 ~/.cursor/skills/change-logging/scripts/log-change.sh config ~/.zshrc "Added ~/.local/bin to PATH"
 ```
+
+6. For dotfiles/config changes mirrored under `/Users/sammefford/projects/sammefford/mac`, make one small Git commit per logical change and push it, when the current user request authorizes the change. Before committing, run `git status`, review the relevant diff, and stage only the intended `mac/` paths. Never commit files containing secrets, tokens, credentials, private keys, or unrelated local changes.
 
 ## Log Locations
 
