@@ -25,12 +25,14 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.cursor/skills/change-logging/scripts/snapshot-config.sh ~/.zshrc "Short reason"
 ```
 
-4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the current file there before editing so Git can show the change. Preserve the home-relative path under `mac/`:
+4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the edited file there after making changes. Preserve the home-relative path under `mac/`:
 
 ```text
-~/.zshrc                 -> /Users/sammefford/projects/sammefford/mac/.zshrc
-~/.claude/hooks.json     -> /Users/sammefford/projects/sammefford/mac/.claude/hooks.json
-~/.local/bin/tool-name   -> /Users/sammefford/projects/sammefford/mac/.local/bin/tool-name
+~/.zshrc                                              -> /Users/sammefford/projects/sammefford/mac/.zshrc
+~/.claude/hooks.json                                  -> /Users/sammefford/projects/sammefford/mac/.claude/hooks.json
+~/.claude/skills/change-logging/SKILL.md              -> /Users/sammefford/projects/sammefford/mac/.claude/skills/change-logging/SKILL.md
+~/.cursor/skills/change-logging/SKILL.md              -> /Users/sammefford/projects/sammefford/mac/.cursor/skills/change-logging/SKILL.md
+~/.local/bin/tool-name                                -> /Users/sammefford/projects/sammefford/mac/.local/bin/tool-name
 ```
 
 5. After an important persistent change, record a short note:
@@ -46,7 +48,7 @@ defaults write com.todesktop.230313mzl4w4u92 ApplePressAndHoldEnabled -bool fals
 ~/.cursor/skills/change-logging/scripts/log-change.sh config ~/Library/Preferences/com.todesktop.230313mzl4w4u92.plist "Disabled Cursor press-and-hold alternate character popup"
 ```
 
-6. For dotfiles/config changes mirrored under `/Users/sammefford/projects/sammefford/mac`, make one small Git commit per logical change and push it, when the current user request authorizes the change. Before committing, run `git status`, review the relevant diff, and stage only the intended `mac/` paths. Never commit files containing secrets, tokens, credentials, private keys, or unrelated local changes.
+6. After mirroring any config file to `/Users/sammefford/projects/sammefford/mac`, always commit and push the change — no additional authorization needed. Before committing, run `git status` in the mac repo, review the relevant diff, and stage only the intended `mac/` paths. Use a concise commit message describing what changed and why. Never commit files containing secrets, tokens, credentials, private keys, or unrelated local changes.
 
 ## Log Locations
 
