@@ -1579,7 +1579,8 @@
                                             "^org\\.gnu\\.AquamacsEmacs$",
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
-                                            "^org\\.pqrs\\.unknownapp\\.conkeror$"
+                                            "^org\\.pqrs\\.unknownapp\\.conkeror$",
+                                            "^com\\.todesktop\\.230313mzl4w4u92$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -1880,7 +1881,8 @@
                                             "^org\\.gnu\\.AquamacsEmacs$",
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
-                                            "^org\\.pqrs\\.unknownapp\\.conkeror$"
+                                            "^org\\.pqrs\\.unknownapp\\.conkeror$",
+                                            "^com\\.todesktop\\.230313mzl4w4u92$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
