@@ -32,7 +32,6 @@ export NVM_DIR="$HOME/.nvm"
 # User-local tools and Claude session logging wrappers.
 export PATH="$HOME/.local/bin:$PATH"
 
-if command -v atuin >/dev/null 2>&1; then
-  eval "$(atuin init zsh)"
-fi
 
+# attempt to fix the bracketed paste mode in cmux
+unset zle_bracketed_paste
