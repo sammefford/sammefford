@@ -1,0 +1,82 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp *)",
+      "Bash(claude --version)",
+      "mcp__chrome-devtools__*",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Read(//Users/sammefford/dev/**)",
+      "Read(//Users/sammefford/projects/**)",
+      "Read(//Users/sammefford/.*/**)",
+      "Read(//Users/sammefford/Library/Application Support/Cursor/**)",
+      "Read(//private/tmp/**)",
+      "Bash(~/.cursor/skills/change-logging/scripts/log-change.sh *)",
+      "Bash(~/.cursor/skills/change-logging/scripts/snapshot-config.sh *)",
+      "Bash(fj whoami *)",
+      "mcp__fluffyjaws__slack_search",
+      "mcp__fluffyjaws__wiki_documentation_search",
+      "mcp__fluffyjaws__full_documentation_search",
+      "mcp__fluffyjaws__experience_league_documentation_search",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:experienceleague.adobe.com)",
+      "Bash(git config *)",
+      "Bash(git log *)",
+      "Bash(gh repo *)",
+      "Bash(sed -n *)",
+      "Bash(xargs cat *)",
+      "Bash(xargs ls *)",
+      "Bash(ssh -T -p 443 git@altssh.gitlab.workfront.tech)"
+    ],
+    "deny": [
+      "mcp__ms365__send-mail",
+      "mcp__ms365__send-draft-message",
+      "mcp__ms365__create-draft-email",
+      "mcp__ms365__reply-mail-message",
+      "mcp__ms365__reply-all-mail-message",
+      "mcp__ms365__forward-mail-message",
+      "mcp__ms365__create-reply-draft",
+      "mcp__ms365__create-reply-all-draft",
+      "mcp__ms365__create-forward-draft",
+      "mcp__ms365__delete-mail-message",
+      "mcp__ms365__delete-mail-folder",
+      "mcp__ms365__update-mail-message",
+      "mcp__ms365__update-mail-folder",
+      "mcp__ms365__update-mailbox-settings",
+      "mcp__ms365__move-mail-message",
+      "mcp__ms365__copy-mail-message",
+      "mcp__ms365__create-mail-folder",
+      "mcp__ms365__create-mail-child-folder",
+      "mcp__ms365__create-mail-rule",
+      "mcp__ms365__update-mail-rule",
+      "mcp__ms365__delete-mail-rule",
+      "mcp__ms365__add-mail-attachment",
+      "mcp__ms365__delete-mail-attachment",
+      "mcp__ms365__create-mail-attachment-upload-session"
+    ],
+    "additionalDirectories": [
+      "/Users/sammefford/.config/karabiner",
+      "/Users/sammefford/dev/hz",
+      "/Users/sammefford/dev/.bazel",
+      "/Users/sammefford/projects/sammefford/mac"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{
+        "type": "command",
+        "if": "Bash(find *)",
+        "command": "cmd=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$cmd\" | grep -qE -- '-exec[[:space:]]+grep([[:space:]]|$)'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"}}'; fi"
+      }]
+    }]
+  },
+  "enableAllProjectMcpServers": true,
+  "model": "opus[1m]",
+  "env": {
+    "MS365_MCP_CLIENT_ID": "f094d27c-c03b-4a0e-bb8d-1a045ca4c3ac",
+    "MS365_MCP_TENANT_ID": "fa7b1b5a-7b34-4387-94ae-d2c178decee1"
+  }
+}
