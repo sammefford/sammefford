@@ -35,3 +35,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # attempt to fix the bracketed paste mode in cmux
 unset zle_bracketed_paste
+export PATH="/usr/local/bin:$PATH"
+
+export PATH="$HOME/.npm-global/bin:$PATH"
