@@ -85,12 +85,20 @@ If the page shows a login screen, pause and ask the user to log in, then retry.
 
 These require the user's Slack session in Chrome.
 
+**Important:** Navigating directly to `adobe.enterprise.slack.com/archives/<channel>/<msg>` will redirect to the desktop app with a "Launching Adobe" page. Before proceeding, use `evaluate_script` to get the `href` of the "open this link in your browser" link on that page, then navigate to that URL instead (it has the form `adobe.enterprise.slack.com/messages/<channel>/<msg>?skip_today=1`). This lands in the Slack web app with the session intact.
+
 For each Slack URL:
 
-1. Navigate Chrome to the URL and wait for messages to load.
-2. Scroll to the top of the thread to load history (`mcp__chrome-devtools__evaluate_script` with `window.scrollTo(0,0)` then wait).
-3. Scroll down incrementally to trigger lazy-loaded messages.
-4. Extract all message elements:
+1. Navigate Chrome to the URL. If the "Launching Adobe" desktop redirect appears, extract the browser link and re-navigate:
+   ```javascript
+   () => Array.from(document.querySelectorAll('a')).find(l => l.textContent.includes('open this link'))?.href
+   ```
+   Then navigate to that URL.
+2. Wait for messages to load, then find the target thread message and click its "N replies" button to open the thread panel.
+3. Read thread content from the a11y snapshot (the thread panel shows all replies inline).
+4. Format as a markdown file and save to `<output>/slack/<channel-id>-<message-id>.md`.
+
+If the thread panel doesn't open or content is missing, fall back to:
 ```javascript
 () => {
   const msgs = document.querySelectorAll('[data-qa="message_container"]');
@@ -103,8 +111,8 @@ For each Slack URL:
 ```
 5. Format as a markdown file and save to `<output>/slack/<channel-id>-<message-id>.md`.
 
-If the above selector fails (Slack updates its DOM frequently), fall back to:
-- `mcp__chrome-devtools__take_snapshot()` — parse the a11y tree for message content
+If selectors fail (Slack updates its DOM frequently), fall back to:
+- `mcp__chrome-devtools__take_snapshot()` — parse the a11y tree for message content (this is the most reliable approach)
 - Screenshot as last resort
 
 ---
