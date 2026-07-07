@@ -1,0 +1,125 @@
+notify = ["/Users/sammefford/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+service_tier = "default"
+
+[marketplaces.openai-bundled]
+last_updated = "2026-07-07T16:32:07Z"
+source_type = "local"
+source = "/Users/sammefford/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-06-26T00:18:50Z"
+source_type = "local"
+source = "/Users/sammefford/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."sites@openai-bundled"]
+enabled = true
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = true
+
+[plugins."record-and-replay@openai-bundled"]
+enabled = true
+
+[features]
+js_repl = false
+
+[mcp_servers.node_repl]
+args = []
+command = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/sammefford/.codex"
+CODEX_HOME = "/Users/sammefford/.codex"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "d1a8040310e3ed270b3d17f6f3d41f4cdbad9096fa1a4f7c425fbb37afe949d3"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.623.31921"
+CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
+
+[desktop]
+conversationDetailMode = "STEPS_COMMANDS"
+ambient-suggestions-enabled = true
+followUpQueueMode = "queue"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-25/record-and-replay-plugin-record-and"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/plugin-creator-users-sammefford-codex-skills"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/plugin-creator-users-sammefford-codex-skills-2"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/plugin-creator-users-sammefford-codex-skills-3"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/co"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/could-you-open-browser-plugin-browser"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/Documents/Codex/2026-06-26/please-read-the-mri-report-here"]
+trust_level = "trusted"
+
+[projects."/Users/sammefford/dev/renzler-service"]
+trust_level = "trusted"
+
+[tui.model_availability_nux]
+"gpt-5.5" = 3
+
+[mcp_servers.workfront_eu]
+url = "https://mcp-eu.workfront.adobe.com/mcp/v1/workfront?operationTags=read,write&stabilityTags=stable"
+bearer_token_env_var = "WF_IMS_TOKEN"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+
+[mcp_servers.workfront_eu.http_headers]
+Accept = "application/json, text/event-stream"
+Content-Type = "application/json"
+x-forwarded-proto = "https"
+
+[mcp_servers.workfront_eu.env_http_headers]
+x-gw-instance-url = "WF_X_GW_INSTANCE_URL"
+x-forwarded-host = "WF_X_GW_INSTANCE_URL"
+
+[mcp_servers.workfront_workflow]
+url = "${env:WF_URL}/mcp-api/mcp?operationTags=read,write&stabilityTags=stable"
+bearer_token_env_var = "WF_IMS_TOKEN"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+
+[mcp_servers.workfront_workflow.http_headers]
+Accept = "application/json, text/event-stream"
+Content-Type = "application/json"
+x-forwarded-proto = "https"
+
+[mcp_servers.workfront_workflow.env_http_headers]
+x-gw-instance-url = "WF_X_GW_INSTANCE_URL"
+x-forwarded-host = "WF_X_GW_INSTANCE_URL"
+
