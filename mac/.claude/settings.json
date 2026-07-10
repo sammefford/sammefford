@@ -9,8 +9,7 @@
       "Bash(/Users/sammefford/.claude/skills/local-sonarqube-scan/scripts/scan.sh start *)",
       "Bash(/Users/sammefford/dev/renzler-service/node_modules/.bin/jest *)",
       "Bash(/Users/sammefford/dev/renzler-service/node_modules/.bin/tsc *)",
-      "Bash(awk '{print $1}')",
-      "Bash(awk '{print $2}')",
+      "Bash(awk '{print *)",
       "Bash(bash -n /Users/sammefford/.claude/skills/local-sonarqube-scan/scripts/scan.sh)",
       "Bash(bash /Users/sammefford/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/review-package *)",
       "Bash(bash /Users/sammefford/.claude/plugins/cache/claude-plugins-official/superpowers/6.0.3/skills/subagent-driven-development/scripts/task-brief *)",
@@ -31,7 +30,7 @@
       "Bash(corepack yarn *)",
       "Bash(cp /Users/sammefford/.claude/*)",
       "Bash(curl --version)",
-      "Bash(curl *//localhost:*)",
+      "Bash(disown)",
       "Bash(defaults read *)",
       "Bash(docker --version)",
       "Bash(docker info *)",
@@ -42,7 +41,9 @@
       "Bash(find *)",
       "Bash(fj whoami *)",
       "Bash(gh api repos/*/check-runs *)",
+      "Bash(gh api repos/*/comments *)",
       "Bash(gh api repos/*/statuses *)",
+      "Bash(gh api repos/*/pulls/*)",
       "Bash(gh pr checks *)",
       "Bash(gh pr diff *)",
       "Bash(gh pr view *)",
@@ -63,19 +64,24 @@
       "Bash(git -C /Users/sammefford/dev/renzler-service commit -m *)",
       "Bash(git -C /Users/sammefford/projects/sammefford/mac commit -m *)",
       "Bash(git -C /Users/sammefford/projects/sammefford/mac push)",
+      "Bash(git branch -a)",
+      "Bash(git branch --show-current)",
       "Bash(git check-ignore *)",
       "Bash(git config --list *)",
+      "Bash(git config --get*)",
       "Bash(git diff *)",
       "Bash(git fetch *)",
       "Bash(git log *)",
       "Bash(git ls-remote *)",
       "Bash(git ls-tree *)",
-      "Bash(git remote -v)",
+      "Bash(git remote *)",
       "Bash(git rev-list *)",
       "Bash(git rev-parse *)",
       "Bash(git show *)",
       "Bash(git stash *)",
       "Bash(git status *)",
+      "Bash(glab ci trace*)",
+      "Bash(glab ci status*)",
       "Bash(grep *)",
       "Bash(head *)",
       "Bash(jq *)",
@@ -83,7 +89,6 @@
       "Bash(lsof *)",
       "Bash(make -C /Users/sammefford/dev/ao run)",
       "Bash(make -C /Users/sammefford/dev/smefford_ao web)",
-      "Bash(mkdir -p *)",
       "Bash(mkdir -p /Users/sammefford/*)",
       "Bash(node_modules/.bin/jest *)",
       "Bash(node_modules/.bin/tsc *)",
@@ -98,7 +103,7 @@
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
       "Bash(ps *)",
-      "Bash(python3 -c \"import json; json.load\\(open\\('*)",
+      "Bash(python3 /Users/sammefford/.claude/hooks/approve-allowlisted-chains/*)",
       "Bash(rg *)",
       "Bash(sed -n *)",
       "Bash(sort *)",
@@ -124,7 +129,6 @@
       "Read(//Users/sammefford/Library/Application Support/Cursor/**)",
       "Read(//Users/sammefford/dev/**)",
       "Read(//Users/sammefford/projects/**)",
-      "Read(//private/tmp/**)",
       "Skill(update-config)",
       "Skill(update-config:*)",
       "WebFetch(domain:experienceleague.adobe.com)",
@@ -146,18 +150,21 @@
       "mcp__fluffyjaws__tenant_or_program_search",
       "mcp__fluffyjaws__wiki_documentation_search",
       "Bash(make run *)",
-      "Bash(mkdir -p /Users/sammefford/.claude/hooks)",
       "Bash(argo version *)",
-      "Bash(python3 -m pip show uv)",
+      "Bash(python3 -m pip show *)",
       "Read(//opt/homebrew/Cellar/uv/0.11.8/bin/**)",
       "Read(//usr/local/bin/**)",
       "Bash(brew list *)",
-      "Bash(curl -sf http://localhost:3000/api/health)",
-      "Bash(curl -sf \"http://localhost:3000/api/manifests/workfront-aia?resolved=true\")",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/api/workfront/instances)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/api/auth/workfront-instances)",
-      "Bash(curl -sf \"http://localhost:3000/api/manifests/workfront-aia?resolved=true\" -w \"\\\\nHTTP_STATUS:%{http_code}\\\\n\")",
-      "Bash(curl -sf http://localhost:8080/health)"
+      "Bash(ssh -i ~/.ssh/* -o IdentitiesOnly=yes *)",
+      "Bash(ssh-keygen -lf ~/.ssh/*)",
+      "Bash(glab api \"projects/:id/pages\"*)",
+      "Bash(npx prettier *)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(python3 -m json.tool)",
+      "Bash(cp *)",
+      "Bash(awk *)",
+      "Bash(split *)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\")"
     ],
     "deny": [
       "Bash(find * -delete *)",
@@ -216,7 +223,8 @@
       "/Users/sammefford/.claude/skills",
       "/tmp",
       "/private/tmp",
-      "/Users/sammefford/.claude/skills/local-sonarqube-scan"
+      "/Users/sammefford/.claude/skills/local-sonarqube-scan",
+      "/Users/sammefford/.claude/projects/-Users-sammefford-dev-smefford-ao"
     ]
   },
   "model": "opus[1m]",
@@ -230,6 +238,28 @@
             "type": "command",
             "command": "cmd=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$cmd\" | grep -qE -- '-exec[[:space:]]+grep([[:space:]]|$)'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"}}'; fi",
             "if": "Bash(find *)"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/sammefford/.claude/hooks/curl-get-only.sh",
+            "if": "Bash(curl *)",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/env python3 /Users/sammefford/.claude/hooks/approve-allowlisted-chains/approve-allowlisted-chains.py",
+            "timeout": 10,
+            "statusMessage": "Checking chained command against allowlist"
           }
         ]
       }

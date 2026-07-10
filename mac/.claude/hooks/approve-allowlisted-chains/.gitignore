@@ -1,0 +1,4 @@
+# bashlex is vendored here for a per-machine, python-agnostic install (see README.md):
+#   uv pip install --target vendor bashlex
+# It is intentionally not committed — install it once per machine.
+vendor/
