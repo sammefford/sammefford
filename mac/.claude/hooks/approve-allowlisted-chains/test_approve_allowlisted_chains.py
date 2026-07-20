@@ -191,12 +191,15 @@ def test_inspect_allows_safe_extension_under_safe_dir():
     assert aac._inspect("echo hi > /tmp/safe/out.log", REDIRECT_SAFE_DIRS)[0] == ["echo hi"]
     assert aac._inspect("echo hi >> /tmp/safe/out.log", REDIRECT_SAFE_DIRS)[0] == ["echo hi"]
     assert aac._inspect("echo hi 2> /tmp/safe/out.err", REDIRECT_SAFE_DIRS)[0] == ["echo hi"]
+    assert aac._inspect("echo hi > /tmp/safe/out.json", REDIRECT_SAFE_DIRS)[0] == ["echo hi"]
+    assert aac._inspect("echo hi > /tmp/safe/out.diff", REDIRECT_SAFE_DIRS)[0] == ["echo hi"]
 
 
 def test_inspect_rejects_unsafe_extension_even_under_safe_dir():
     # .txt is deliberately excluded (requirements.txt / CMakeLists.txt risk).
     assert aac._inspect("echo hi > /tmp/safe/out.txt", REDIRECT_SAFE_DIRS)[0] is None
-    assert aac._inspect("echo hi > /tmp/safe/out.json", REDIRECT_SAFE_DIRS)[0] is None
+    # .py is not in _SAFE_REDIRECT_EXTENSIONS at all -- overwriting a script is real risk.
+    assert aac._inspect("echo hi > /tmp/safe/out.py", REDIRECT_SAFE_DIRS)[0] is None
 
 
 def test_inspect_rejects_safe_extension_outside_safe_dir():
