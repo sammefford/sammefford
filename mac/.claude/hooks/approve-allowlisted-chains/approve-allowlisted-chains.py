@@ -8,20 +8,47 @@ fills that gap: it parses the command with bashlex (bash's own grammar), and ret
 `allow` decision only when the command is a plain chain of >= 2 simple commands, every
 segment matches an allow rule, and none matches a deny rule.
 
+It also closes a narrower, separate gap: a command name given as an absolute path into a
+known system/package-manager bin directory (e.g. `/usr/bin/tail`) is a different literal
+string than the allowlisted bare form (`tail`), so CC's own prefix matching treats them as
+unrelated and prompts again. This hook canonicalizes just the leading command word of each
+segment — never its arguments — back to its bare form before matching, so it only needs to
+be allowlisted once. This also lets a single (non-chain) command through when, and only
+when, canonicalizing its absolute path is the reason it now matches — an ordinary bare
+single command is still left to Claude Code's native matching, unchanged from before.
+
 Safety model — the only dangerous divergence from Claude Code is *over*-approval, so the
 design makes that impossible rather than trying to replicate CC exactly:
 
 * Splitting and danger-detection use bashlex, not hand-rolled string scanning, so we
-  agree with the shell that actually runs the command. Anything with command/process
-  substitution, a compound command (subshell, group, for/while/if/case), a function, an
-  inline `VAR=val` assignment, a heredoc, or a redirect to anything but an fd dup
-  (`2>&1`) or `/dev/null` is refused outright.
+  agree with the shell that actually runs the command. A compound command (subshell,
+  group, for/while/if/case), a function, an inline `VAR=val` assignment, or a heredoc is
+  refused outright. A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, or an
+  output redirect (`>`/`>>`) to a literal (no `$VAR`/`$(...)`) absolute path that both ends
+  in a safe extension (`.log`, `.out`, `.err`, `.tmp`) and falls under a trusted directory
+  (see `_load_safe_redirect_dirs`) — anything else (input redirects, relative paths,
+  dynamic paths, other extensions/directories) is refused outright.
+* Command/process substitution (`$(...)`, backticks, `<(...)`) is not refused outright —
+  its inner command is recursed into and treated as just another segment, subject to the
+  same allow/deny check and the same unsafe-construct detection. This is safe because
+  substitution output can only ever become argument *text* in the outer command; it is
+  never re-parsed as shell syntax, so it can't smuggle in a new command. Only *top-level*
+  segments count toward the "chain of >=2" gate below, so a single bare command that
+  merely contains a substitution (e.g. `cat "$(git rev-parse --show-toplevel)/x"`) still
+  does not qualify as a chain — it's left to Claude Code's native single-command matching.
 * Allow matching is a deliberately *conservative subset* of CC's rule semantics (exact
   match or a single trailing wildcard only). Under-matching just means a normal prompt;
   it can never approve something CC would not.
 * Deny matching is *liberal* (full `*` wildcards) so it never misses a deny — and, as a
   backstop, Claude Code re-applies its own deny rules after this hook regardless, so a
   denied command is blocked even if this hook were wrong.
+* Path canonicalization only strips a directory prefix that is an exact match against a
+  small fixed set of known bin directories (`_KNOWN_BIN_DIRS`), and only from the first
+  word of a segment (the command name). It can never alter argument text, so it can't be
+  used to disguise a different command or manufacture a false wildcard match. Both the raw
+  and canonicalized forms of every segment are checked against *both* allow and deny rules,
+  so canonicalizing can only ever add an extra chance to match a deny rule too — never a
+  way to dodge one.
 
 On any parse failure, unsafe construct, or unexpected input it prints nothing and exits
 0, so Claude Code's normal prompting takes over. It never emits `deny`.
@@ -88,6 +115,86 @@ def _load_rules() -> tuple[list[str], list[str]]:
     return _bash_patterns(allow), _bash_patterns(deny)
 
 
+# Extensions with no known critical-config use, so overwriting a matching file is at
+# worst clobbering a regenerable build/run artifact. Deliberately excludes `.txt`:
+# requirements.txt and CMakeLists.txt are load-bearing manifests with that extension.
+_SAFE_REDIRECT_EXTENSIONS = {".log", ".out", ".err", ".tmp", ".diff", ".json"}
+
+
+def _load_safe_redirect_dirs() -> list[str]:
+    """Absolute directory prefixes a real-file redirect may target.
+
+    Reuses directories the user has *already* told Claude Code to trust broadly (the
+    current project dir plus every `permissions.additionalDirectories` entry from the
+    settings files below), plus the OS scratch dirs. Widening this list only widens which
+    redirects skip a prompt — it never grants a *new* capability, since Claude Code (via
+    Edit/Write) can already touch these paths freely."""
+    dirs: list[str] = ["/tmp", "/private/tmp"]
+    tmpdir = os.environ.get("TMPDIR")
+    if tmpdir:
+        dirs.append(tmpdir)
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project:
+        dirs.append(project)
+    for path in (
+        os.path.expanduser("~/.claude/settings.json"),
+        os.path.join(project or ".", ".claude", "settings.json"),
+        os.path.join(project or ".", ".claude", "settings.local.json"),
+    ):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                perms = json.load(handle).get("permissions", {})
+        except (OSError, ValueError):
+            continue
+        dirs += perms.get("additionalDirectories", [])
+    return [os.path.expanduser(d) for d in dirs]
+
+
+def _under_safe_dir(path: str, safe_dirs: list[str]) -> bool:
+    """True iff `path` resolves under one of `safe_dirs`. Both sides are resolved with
+    `realpath` here (not by callers) so symlinked prefixes (e.g. macOS `/tmp` ->
+    `/private/tmp`) can't cause a false mismatch either way."""
+    resolved = os.path.realpath(path)
+    for d in safe_dirs:
+        resolved_dir = os.path.realpath(os.path.expanduser(d))
+        if resolved == resolved_dir or resolved.startswith(resolved_dir + os.sep):
+            return True
+    return False
+
+
+# Standard directories where system and package-manager binaries live. A command name
+# resolving under one of these (and only these) is canonicalized to its bare form for
+# allow/deny matching, so `Bash(tail *)` also covers `/usr/bin/tail`, `/bin/tail`, etc.
+# without a separate rule per absolute path.
+_KNOWN_BIN_DIRS = frozenset(
+    {
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+    }
+)
+
+
+def _canonicalize_command_word(word: str) -> str:
+    """`/usr/bin/tail` -> `tail`. Anything not under a `_KNOWN_BIN_DIRS` entry, including
+    an unrecognized absolute path, is returned unchanged."""
+    if os.path.dirname(word) in _KNOWN_BIN_DIRS:
+        return os.path.basename(word)
+    return word
+
+
+def _canonicalize_segment(segment: str) -> str:
+    """Canonicalize only the leading command word of a segment; everything after the
+    first space (the arguments) is passed through untouched."""
+    head, sep, rest = segment.partition(" ")
+    return _canonicalize_command_word(head) + sep + rest
+
+
 def _allow_matches(segment: str, pattern: str) -> bool:
     """Conservative subset of CC's Bash-rule semantics: exact match, or a single trailing
     wildcard (`verb *`, `verb:*`, `verb*`). Any mid-string or repeated `*` is treated as
@@ -121,10 +228,21 @@ if bashlex is not None:
 
     class _ChainInspector(bashlex.ast.nodevisitor):
         """Walks a bashlex AST, collecting simple-command texts and refusing (recording a
-        reason) on any construct that makes blanket approval unsafe."""
+        reason) on any construct that makes blanket approval unsafe.
 
-        def __init__(self) -> None:
+        `commands` holds every simple-command segment found, including ones nested inside
+        a command/process substitution. `top_level_commands` counts only the ones found
+        outside any substitution, so the ">=2 segment" chain gate in `decide()` can't be
+        satisfied by a single command that merely contains a substitution.
+
+        `safe_dirs` bounds which absolute paths a real-file redirect may target (see
+        `visitredirect`); pass `[]` to refuse every real-file redirect as before."""
+
+        def __init__(self, safe_dirs: list[str] | None = None) -> None:
             self.commands: list[str] = []
+            self.top_level_commands = 0
+            self._subst_depth = 0
+            self._safe_dirs = safe_dirs or []
             self.reason: str | None = None
 
         def _refuse(self, why: str) -> None:
@@ -132,11 +250,15 @@ if bashlex is not None:
                 self.reason = why
 
         def visitcommandsubstitution(self, n, command) -> bool:
-            self._refuse("command substitution $(...) or backticks")
-            return False
+            self._subst_depth += 1
+            self.visit(command)
+            self._subst_depth -= 1
+            return False  # already recursed manually; block the base class's auto-recursion
 
         def visitprocesssubstitution(self, n, command) -> bool:
-            self._refuse("process substitution <(...) or >(...)")
+            self._subst_depth += 1
+            self.visit(command)
+            self._subst_depth -= 1
             return False
 
         def visitcompound(self, n, list, redirects) -> bool:
@@ -153,48 +275,87 @@ if bashlex is not None:
         def visitredirect(self, n, input, type, output, heredoc) -> None:
             if isinstance(output, int):
                 return  # fd duplication such as 2>&1
-            if getattr(output, "word", None) == "/dev/null":
+            word = getattr(output, "word", None)
+            if word == "/dev/null":
                 return
-            self._refuse("redirect to a file (only fd dups and /dev/null allowed)")
+            if (
+                type in (">", ">>")
+                and word is not None
+                and not output.parts  # literal text only: no $VAR / $(...) / `...` inside
+                and os.path.isabs(word)
+                and os.path.splitext(word)[1].lower() in _SAFE_REDIRECT_EXTENSIONS
+                and _under_safe_dir(word, self._safe_dirs)
+            ):
+                return
+            self._refuse(
+                "redirect to a file (only fd dups, /dev/null, and >/>> to a literal "
+                "absolute .log/.out/.err/.tmp path under a trusted directory are allowed)"
+            )
 
         def visitcommand(self, n, parts) -> None:
             words = [p.word for p in parts if p.kind == "word"]
             if words:
                 self.commands.append(" ".join(words))
+                if self._subst_depth == 0:
+                    self.top_level_commands += 1
 
 
-def _inspect(command: str) -> tuple[list[str] | None, str | None]:
-    """Parse `command` and return (segments, None) for a safe plain chain, or
-    (None, reason) when it cannot be safely auto-approved."""
+def _inspect(
+    command: str, safe_dirs: list[str] | None = None
+) -> tuple[list[str] | None, int, str | None]:
+    """Parse `command` and return (segments, top_level_count, None) for a safe plain
+    chain, or (None, 0, reason) when it cannot be safely auto-approved. `segments`
+    includes commands nested inside a substitution; `top_level_count` excludes them, so
+    callers can gate "is this actually a chain" on top-level segments only.
+
+    `safe_dirs` (default none) bounds which absolute paths a real-file redirect may
+    target; see `_ChainInspector`."""
     if bashlex is None:
-        return None, "bashlex unavailable"
+        return None, 0, "bashlex unavailable"
     try:
         trees = bashlex.parse(command)
     except (bashlex.errors.ParsingError, NotImplementedError):
-        return None, "not parseable as a simple command chain"
+        return None, 0, "not parseable as a simple command chain"
     except Exception as exc:  # bashlex can raise assorted errors on exotic input
-        return None, f"parse error ({type(exc).__name__})"
-    inspector = _ChainInspector()
+        return None, 0, f"parse error ({type(exc).__name__})"
+    inspector = _ChainInspector(safe_dirs)
     try:
         for tree in trees:
             inspector.visit(tree)
     except Exception as exc:
-        return None, f"walk error ({type(exc).__name__})"
+        return None, 0, f"walk error ({type(exc).__name__})"
     if inspector.reason is not None:
-        return None, inspector.reason
-    return inspector.commands, None
+        return None, 0, inspector.reason
+    return inspector.commands, inspector.top_level_commands, None
 
 
-def decide(command: str, allow: list[str], deny: list[str]) -> bool:
-    """True iff `command` is a plain chain of >= 2 simple commands, each matching an
-    allow rule and none matching a deny rule."""
-    segments, _ = _inspect(command)
-    if not segments or len(segments) < 2 or not allow:
+def decide(
+    command: str, allow: list[str], deny: list[str], safe_dirs: list[str] | None = None
+) -> bool:
+    """True iff `command` is either a plain chain of >= 2 top-level simple commands, or a
+    single top-level command whose only obstacle was an absolute path into a known bin
+    directory (see `_canonicalize_segment`) — and, either way, every segment (including
+    any nested inside a substitution, checked in both its raw and canonicalized form)
+    matches an allow rule while none matches a deny rule.
+
+    `safe_dirs`: directories a real-file redirect may target. Defaults to
+    `_load_safe_redirect_dirs()` (live settings/env) when not given — callers that need
+    deterministic results (tests) should pass a fixed list explicitly."""
+    if safe_dirs is None:
+        safe_dirs = _load_safe_redirect_dirs()
+    segments, top_level_count, _ = _inspect(command, safe_dirs)
+    if not segments or not allow:
+        return False
+    is_chain = top_level_count >= 2
+    is_lone_path_command = top_level_count == 1 and _canonicalize_segment(segments[0]) != segments[0]
+    if not is_chain and not is_lone_path_command:
         return False
     for segment in segments:
-        if any(_deny_matches(segment, pattern) for pattern in deny):
+        canon = _canonicalize_segment(segment)
+        candidates = (segment,) if canon == segment else (segment, canon)
+        if any(_deny_matches(c, pattern) for c in candidates for pattern in deny):
             return False
-        if not any(_allow_matches(segment, pattern) for pattern in allow):
+        if not any(_allow_matches(c, pattern) for c in candidates for pattern in allow):
             return False
     return True
 
@@ -229,26 +390,31 @@ def _check() -> int:
     real settings. Usage: approve-allowlisted-chains.py --check < cmd.txt"""
     command = sys.stdin.read().strip()
     allow, deny = _load_rules()
-    verdict = decide(command, allow, deny)
+    safe_dirs = _load_safe_redirect_dirs()
+    verdict = decide(command, allow, deny, safe_dirs)
     print(f"decision: {'AUTO-APPROVE (no prompt)' if verdict else 'DEFER to normal prompt'}\n")
-    segments, reason = _inspect(command)
+    segments, top_level_count, reason = _inspect(command, safe_dirs)
     if segments is None:
         print(f"refused: {reason}")
         return 0
-    if len(segments) < 2:
-        print(f"deferred: not a chain ({len(segments)} segment)")
+    is_lone_path_command = top_level_count == 1 and _canonicalize_segment(segments[0]) != segments[0]
+    if top_level_count < 2 and not is_lone_path_command:
+        print(f"deferred: not a chain ({top_level_count} top-level segment)")
         return 0
     for segment in segments:
-        denied = next((p for p in deny if _deny_matches(segment, p)), None)
-        allowed = next((p for p in allow if _allow_matches(segment, p)), None)
+        canon = _canonicalize_segment(segment)
+        candidates = (segment,) if canon == segment else (segment, canon)
+        denied = next((p for c in candidates for p in deny if _deny_matches(c, p)), None)
+        allowed = next((p for c in candidates for p in allow if _allow_matches(c, p)), None)
         if denied:
             tag = f"DENIED by Bash({denied})"
         elif allowed:
             tag = f"ok via Bash({allowed})"
         else:
             tag = "NO MATCHING ALLOW RULE"
+        shown = segment if canon == segment else f"{segment}  [canonicalized: {canon}]"
         mark = "ok  " if allowed and not denied else "FAIL"
-        print(f"  [{mark}] {segment}   -> {tag}")
+        print(f"  [{mark}] {shown}   -> {tag}")
     return 0
 
 
@@ -266,6 +432,7 @@ def _selftest() -> int:
         "git remote -v",
     ]
     deny = ["find * -exec *", "find * -delete *"]
+    safe_dirs = ["/tmp/safe"]
     cases: list[tuple[str, bool]] = [
         # the exact chain that prompted, plus the two original shapes
         (
@@ -288,10 +455,34 @@ def _selftest() -> int:
         ("git rev-parse @{u} 2>&1 && echo done", True),  # bashlex must accept @{u}
         ("git log origin/main..HEAD --oneline && echo ok", True),  # and .. ranges
         ("git log --oneline -1", False),  # single command, not a chain
+        ("/usr/bin/sort -u", True),  # lone command, but absolute path canonicalizes to an allow rule
+        ("/opt/evil/sort -u", False),  # absolute path, but not under a known bin dir -> no canonicalization
+        ("/usr/bin/rm -rf ~", False),  # canonicalizes to "rm", which isn't allowlisted
+        ("echo hi | /usr/bin/sort -u", True),  # chain mixing a bare and an absolute-path segment
+        ("echo hi && /bin/find . -delete", False),  # canonical form must still hit the deny rule
         ("echo hi && rm -rf ~", False),  # rm not allowlisted
-        ("echo $(whoami) && echo hi", False),  # command substitution
-        ("echo `whoami` && echo hi", False),  # backticks
+        ("echo $(whoami) && echo hi", False),  # command substitution, but whoami isn't allowlisted
+        ("echo `whoami` && echo hi", False),  # same, via backticks
+        (
+            'echo "$(git rev-parse --show-toplevel)" && echo hi',
+            True,
+        ),  # command substitution whose inner command is also allowlisted
+        (
+            'echo "$(git rev-parse --show-toplevel)"',
+            False,
+        ),  # single top-level command; a nested substitution doesn't make it a chain
+        (
+            'echo "$(cd x && (echo hi))" && echo bye',
+            False,
+        ),  # unsafe construct nested inside a substitution is still refused
         ("echo hi && git log --oneline > out.txt", False),  # file redirect
+        ("echo hi && echo done > /tmp/safe/out.log", True),  # safe extension + safe dir
+        ("echo hi && echo done >> /tmp/safe/out.log", True),  # append form too
+        ("echo hi && echo done 2> /tmp/safe/out.err", True),  # stderr capture
+        ("echo hi && echo done > /tmp/safe/out.txt", False),  # .txt deliberately excluded
+        ("echo hi && echo done > /var/log/out.log", False),  # safe extension, unsafe dir
+        ("echo hi && echo done > out.log", False),  # relative path always refused
+        ("echo hi && echo done > /tmp/safe/$USER.log", False),  # dynamic path refused
         ("cd x && (echo hi)", False),  # subshell grouping
         ("for d in a b; do echo $d; done", False),  # compound / control flow
         ("FOO=bar git log --oneline && echo hi", False),  # inline assignment
@@ -301,7 +492,7 @@ def _selftest() -> int:
     ]
     failures = 0
     for command, expected in cases:
-        actual = decide(command, allow, deny)
+        actual = decide(command, allow, deny, safe_dirs)
         if actual != expected:
             failures += 1
         print(f"{'ok  ' if actual == expected else 'FAIL'} expected={expected!s:5} got={actual!s:5} :: {command[:66]}")
