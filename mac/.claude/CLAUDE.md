@@ -20,3 +20,11 @@ Assume a real (non-worktree) working dir may have another session (user or agent
 - Don't give subagents write access to the real checkout unless the task needs it and the user asked. Prefer isolated worktrees; if a subagent needs the real path, scope it to read-only (`log`/`diff`/`show`/`Read`) explicitly in the prompt. Worktree isolation doesn't block absolute-path writes (`git -C <realpath> ...`) — handing over a real path = granting write access there.
 - Commit/push only what this session discussed — don't sweep up unrelated uncommitted edits.
 - `git stash` to isolate concurrent edits needs confirmed pause of other sessions first — and must be popped before finishing, so paused sessions resume where they left off.
+
+## Screenshot Evaluation
+
+Prefer Haiku for interpreting screenshots/visual state, instead of evaluating images inline in the main session.
+
+- When a screenshot needs interpreting (e.g. `mcp__chrome-devtools__take_screenshot`, verifying a rendered UI), save it to a file (`filePath`) rather than inline, then dispatch an `Agent` call with `model: "haiku"` to read the image and report back a description or verdict against the specific check you need.
+- Keep the main session's job to deciding what to check and acting on the verdict — not reading the pixels itself.
+- Skip this for non-visual evidence (accessibility-tree snapshots, network logs, DOM text) — those are fine to read directly; this applies to actual image interpretation.
