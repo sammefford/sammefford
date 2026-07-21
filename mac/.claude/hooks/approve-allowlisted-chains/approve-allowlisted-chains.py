@@ -36,10 +36,14 @@ design makes that impossible rather than trying to replicate CC exactly:
   segments count toward the "chain of >=2" gate below, so a single bare command that
   merely contains a substitution (e.g. `cat "$(git rev-parse --show-toplevel)/x"`) still
   does not qualify as a chain — it's left to Claude Code's native single-command matching.
-* Allow matching is a deliberately *conservative subset* of CC's rule semantics (exact
-  match or a single trailing wildcard only). Under-matching just means a normal prompt;
-  it can never approve something CC would not.
-* Deny matching is *liberal* (full `*` wildcards) so it never misses a deny — and, as a
+* Allow matching uses the same `*`-anywhere glob semantics as Claude Code's own
+  `Bash(...)` rules (mid-string and repeated wildcards included, e.g.
+  `Bash(gh api repos/*/contents/*)`), so a chain segment is approved only when it matches
+  a rule a human already wrote — never something CC's own matching wouldn't also accept.
+  Rule text is also dequoted the same way bashlex dequotes a parsed command word, so a
+  rule written with literal quotes (e.g. `Bash(python3 -c "import yaml; ...")`) still
+  lines up with the dequoted segment text it's compared against.
+* Deny matching uses the same glob semantics so it never misses a deny — and, as a
   backstop, Claude Code re-applies its own deny rules after this hook regardless, so a
   denied command is blocked even if this hook were wrong.
 * Path canonicalization only strips a directory prefix that is an exact match against a
@@ -74,12 +78,31 @@ try:
     import bashlex
     import bashlex.ast
     import bashlex.errors
+    import bashlex.shutils
 except Exception:  # vendored dep missing/broken -> hook safely does nothing
     bashlex = None
 
 
+def _dequote_pattern(pattern: str) -> str:
+    """Strip quote characters from a `Bash(...)` rule's inner pattern the same way bashlex
+    dequotes a parsed command word (see `visitcommand`), so a rule that was written with
+    literal quotes -- typically because Claude Code's own native matcher needs them to
+    match the raw command text, e.g. `Bash(python3 -c "import yaml; ...")` -- still lines
+    up with the dequoted segment text this hook compares it against. A no-op on a pattern
+    that has no quote characters."""
+    if bashlex is None:
+        return pattern
+    try:
+        return bashlex.shutils.removequotes(pattern)
+    except Exception:
+        return pattern
+
+
 def _bash_patterns(rules: list[str]) -> list[str]:
-    """Inner patterns of `Bash(...)` rules; a bare `Bash` rule becomes `*` (match all)."""
+    """Inner patterns of `Bash(...)` rules; a bare `Bash` rule becomes `*` (match all).
+    Quote characters are left as-is here -- `_allow_matches`/`_deny_matches` dequote at
+    match time (via `_dequote_pattern`) so it applies uniformly no matter how a caller
+    obtained the pattern list, not just when routed through this function."""
     patterns: list[str] = []
     for rule in rules:
         if rule == "Bash":
@@ -195,33 +218,45 @@ def _canonicalize_segment(segment: str) -> str:
     return _canonicalize_command_word(head) + sep + rest
 
 
-def _allow_matches(segment: str, pattern: str) -> bool:
-    """Conservative subset of CC's Bash-rule semantics: exact match, or a single trailing
-    wildcard (`verb *`, `verb:*`, `verb*`). Any mid-string or repeated `*` is treated as
-    no-match, so those rules simply fall through to a normal prompt. Deliberately matches
-    less than CC, so the hook can never approve something CC would reject."""
-    if "*" not in pattern:
-        return segment == pattern
-    if pattern.count("*") == 1 and pattern.endswith("*"):
-        base = pattern[:-1]
-        if base.endswith((" ", ":")):
-            return segment == base[:-1] or segment.startswith(base)
-        return segment.startswith(base)
-    return False
-
-
-def _deny_matches(segment: str, pattern: str) -> bool:
-    """Liberal match for deny rules: `*` is a wildcard anywhere, anchored to the whole
-    segment (a trailing ` *` also matches the bare base). Erring toward matching means we
-    never miss a deny; a false match only costs a prompt."""
-    if pattern == "*":
-        return True
-    trailing = pattern.endswith(" *")
+def _pattern_regex(pattern: str) -> str:
+    """Build a fullmatch-anchored regex from an allow/deny pattern: every `*` becomes
+    `.*`, including mid-string and repeated occurrences, matching Claude Code's own
+    `Bash(...)` glob semantics (settings already rely on this, e.g.
+    `Bash(gh api repos/*/contents/*)`). A trailing ` *` or `:*` is additionally treated as
+    an optional suffix, so a rule like `git log *` (or `npm run build:*`) also matches the
+    bare command/word with nothing after the separator at all."""
+    trailing = pattern.endswith(" *") or pattern.endswith(":*")
+    sep = pattern[-2] if trailing else ""
     core = pattern[:-2] if trailing else pattern
     regex = "".join(".*" if part == "*" else re.escape(part) for part in re.split(r"(\*)", core))
     if trailing:
-        regex += r"(?: .*)?"
-    return re.fullmatch(regex, segment) is not None
+        regex += f"(?:{re.escape(sep)}.*)?"
+    return regex
+
+
+def _allow_matches(segment: str, pattern: str) -> bool:
+    """Glob match against an allow rule using the same `*`-anywhere semantics Claude
+    Code's own `Bash(...)` rules use (see `_pattern_regex`) -- so this hook can approve any
+    chain segment CC's native matcher would already accept on its own. This is a wider
+    match than earlier versions of this hook (which only handled a single trailing
+    wildcard); it's still bounded by the same rules a human already wrote into settings, so
+    it can't approve anything CC's own matching wouldn't. `pattern` is dequoted here (not
+    by the caller) so this applies uniformly regardless of whether it came through
+    `_bash_patterns` or was supplied directly (e.g. in tests)."""
+    pattern = _dequote_pattern(pattern)
+    if "*" not in pattern:
+        return segment == pattern
+    return re.fullmatch(_pattern_regex(pattern), segment) is not None
+
+
+def _deny_matches(segment: str, pattern: str) -> bool:
+    """Deny matching: the same glob semantics as `_allow_matches` (kept as a separate
+    function in case allow/deny semantics ever need to diverge again). Erring toward
+    matching means we never miss a deny; a false match only costs a prompt."""
+    pattern = _dequote_pattern(pattern)
+    if pattern == "*":
+        return True
+    return re.fullmatch(_pattern_regex(pattern), segment) is not None
 
 
 if bashlex is not None:
@@ -430,6 +465,9 @@ def _selftest() -> int:
         "git rev-parse *",
         "git fetch *",
         "git remote -v",
+        "base64 *",
+        "gh api repos/*/contents/*",
+        "python3 -c \"import yaml; yaml.safe_load(open('*'))\"",
     ]
     deny = ["find * -exec *", "find * -delete *"]
     safe_dirs = ["/tmp/safe"]
@@ -489,6 +527,19 @@ def _selftest() -> int:
         ("echo hi && find . -exec rm {} +", False),  # -exec matches deny
         ("echo hi && find . -maxdepth 1 -delete", False),  # -delete matches deny
         ("git status && echo done", False),  # git status not allowlisted
+        (
+            'gh api "repos/Adobe-Experience-Platform/ao-deploy/contents/k8s/helm/Stage/'
+            "va7/values.yaml?ref=0f6a6015c\" --jq '.content' | base64 -d | grep 'tag:'",
+            True,
+        ),  # mid-string wildcard rule ("gh api repos/*/contents/*") + a quoted argument
+        (
+            "gh api \"repos/other-org/other-repo/statuses/abc\" | grep 'state'",
+            False,
+        ),  # same shape, but doesn't match the "contents" segment of the allow rule
+        (
+            """python3 -c "import yaml; yaml.safe_load(open('foo.yaml'))" && echo ok""",
+            True,
+        ),  # allow rule itself contains literal quotes around its wildcard
     ]
     failures = 0
     for command, expected in cases:

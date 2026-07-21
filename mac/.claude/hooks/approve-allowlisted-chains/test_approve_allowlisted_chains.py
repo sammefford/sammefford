@@ -30,6 +30,9 @@ ALLOW = [
     "git remote -v",
     "uv run pytest*",
     "npm run build:*",
+    "base64 *",
+    "gh api repos/*/contents/*",
+    "python3 -c \"import yaml; yaml.safe_load(open('*'))\"",
 ]
 DENY = ["find * -exec *", "find * -delete *"]
 # Empty on purpose: none of the pre-existing tests below need a real-file redirect to
@@ -74,13 +77,39 @@ def test_allow_colon_wildcard():
     assert aac._allow_matches("npm run build:prod", "npm run build:*")
 
 
-def test_allow_midstring_star_is_ignored():
-    # Conservative: a mid-string '*' never matches, so such rules just prompt.
-    assert not aac._allow_matches("gh api repos/x/statuses y", "gh api repos/*/statuses *")
+def test_allow_midstring_and_repeated_wildcards_match():
+    # Mid-string and repeated '*' now match, mirroring CC's own glob semantics -- these
+    # rules already exist in real settings.json (e.g. Bash(gh api repos/*/contents/*)).
+    assert aac._allow_matches("gh api repos/x/statuses y", "gh api repos/*/statuses *")
+    assert aac._allow_matches(
+        "gh api repos/adobe/ao-deploy/contents/k8s/values.yaml --jq .content",
+        "gh api repos/*/contents/*",
+    )
+    # still anchored: a segment that doesn't line up with the literal parts must not match
+    assert not aac._allow_matches("gh api repos/x/statuses/y", "gh api repos/*/contents/*")
 
 
 def test_allow_bare_star_matches_anything():
     assert aac._allow_matches("literally anything", "*")
+
+
+# --- _dequote_pattern / quoted allow rules -----------------------------------
+def test_dequote_pattern_is_noop_without_quotes():
+    assert aac._dequote_pattern("git log *") == "git log *"
+
+
+def test_dequote_pattern_strips_quotes_like_bashlex_dequotes_a_word():
+    # bashlex strips the *outer* quotes from a parsed command word (see
+    # test_inspect_recurses_into_command_substitution below); a rule written with quotes
+    # for CC's own native matcher needs the same treatment to line up with that word.
+    pattern = """python3 -c "import yaml; yaml.safe_load(open('*'))\""""
+    assert aac._dequote_pattern(pattern) == """python3 -c import yaml; yaml.safe_load(open('*'))"""
+
+
+def test_allow_matches_a_rule_containing_literal_quotes():
+    pattern = """python3 -c "import yaml; yaml.safe_load(open('*'))\""""
+    segment = "python3 -c import yaml; yaml.safe_load(open('foo.yaml'))"  # as bashlex extracts it
+    assert aac._allow_matches(segment, pattern)
 
 
 # --- _canonicalize_command_word / _canonicalize_segment: path canonicalization ----
@@ -329,6 +358,27 @@ def test_decide_canonicalized_form_still_hits_deny_rule():
     # The deny rule text ("find * -delete *") only matches the bare form; canonicalizing
     # must not let an absolute-path invocation dodge it.
     assert not aac.decide("echo hi && /bin/find . -delete", ALLOW, DENY, SAFE_DIRS)
+
+
+# --- decide: mid-string wildcard rules + quoted arguments (the gh api scenario) ----
+def test_decide_approves_chain_with_quoted_arg_against_midstring_wildcard_rule():
+    # Real-world case: a quoted `gh api "repos/.../contents/..."` path piped through
+    # base64 and grep, matching the allow rule Bash(gh api repos/*/contents/*).
+    cmd = (
+        'gh api "repos/Adobe-Experience-Platform/ao-deploy/contents/k8s/helm/Stage/'
+        "va7/values.yaml?ref=0f6a6015c\" --jq '.content' | base64 -d | grep 'tag:'"
+    )
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_chain_when_midstring_wildcard_rule_doesnt_line_up():
+    cmd = 'gh api "repos/other-org/other-repo/statuses/abc" | grep \'state\''
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_chain_with_rule_containing_literal_quotes():
+    cmd = """python3 -c "import yaml; yaml.safe_load(open('foo.yaml'))" && echo ok"""
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
 
 
 def _run_standalone() -> int:

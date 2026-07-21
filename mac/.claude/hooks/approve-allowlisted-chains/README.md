@@ -79,11 +79,17 @@ would not. The design makes that impossible instead of trying to replicate CC ex
   so a lone command that merely contains a substitution (e.g.
   `cat "$(git rev-parse --show-toplevel)/x"`) still isn't treated as a chain — it's left to
   Claude Code's own single-command matching.
-- **Conservative allow matching.** `_allow_matches` is a deliberate *subset* of CC's rule
-  semantics: exact match, or a single trailing wildcard (`verb *`, `verb:*`, `verb*`). Any
-  mid-string or repeated `*` is treated as no-match. Under-matching only ever costs a
-  prompt; it can never approve something CC would reject.
-- **Liberal deny matching + backstop.** `_deny_matches` treats `*` as a full wildcard so it
+- **Allow matching mirrors CC's own rule semantics.** `_allow_matches` treats `*` as a
+  wildcard anywhere in the pattern — mid-string and repeated occurrences included (e.g.
+  `Bash(gh api repos/*/contents/*)`), matching how Claude Code's own `Bash(...)` rules
+  already work (settings.json already has rules like this). It also dequotes the rule text
+  the same way bashlex dequotes a parsed command word (`_dequote_pattern`), so a rule
+  written with literal quotes — typically because CC's own native matcher needs them to
+  match the raw command text, e.g. `Bash(python3 -c "import yaml; ...")` — still lines up
+  with the dequoted segment text it's compared against. This only ever matches what a
+  human already wrote into an allow rule; it can't approve something CC's own matching on
+  that same rule wouldn't.
+- **Liberal deny matching + backstop.** `_deny_matches` uses the same glob semantics so it
   never *misses* a deny. And Claude Code re-applies its own deny rules *after* this hook
   regardless (a deny beats a hook's allow — verified), so a denied command is blocked even
   if this hook were wrong.
@@ -276,8 +282,10 @@ The pieces are deliberately small and separable:
 |---|---|
 | `_load_rules()`   | Read `Bash(...)` allow/deny patterns from the settings files CC reads. |
 | `_bash_patterns()`| Pull inner patterns out of `Bash(...)` rule strings. |
-| `_allow_matches()`| Conservative allow match. Extend *carefully* — looser matching risks over-approval. |
+| `_allow_matches()`| Glob allow match (mirrors CC's own `Bash(...)` semantics). Extend *carefully* — looser matching risks over-approval. |
 | `_deny_matches()` | Liberal deny match. Safe to widen; widening only adds prompts. |
+| `_pattern_regex()`| Shared glob-to-regex conversion used by both match functions. |
+| `_dequote_pattern()` | Strips quote characters from a rule's pattern text the same way bashlex dequotes a parsed command word. |
 | `_KNOWN_BIN_DIRS` | Fixed set of directories a command name may be canonicalized from. Widen *carefully* — only add directories that exclusively hold trusted system/package-manager binaries. |
 | `_canonicalize_command_word()` / `_canonicalize_segment()` | Strip a known bin-dir prefix from a segment's command name only, for allow/deny matching. |
 | `_SAFE_REDIRECT_EXTENSIONS` | Extensions a real-file redirect target may end in. Widen *carefully* — only add extensions with no plausible critical-config use. |
@@ -297,12 +305,6 @@ don't — bail instead.
 - **Relative-path real-file redirects always refuse**, even with `safe_dirs` configured
   and a safe extension — resolving them correctly would require knowing the effective cwd,
   which an earlier `cd` in the same chain could have changed. Use an absolute path.
-- **Quoted `python3 -c "..."`-style rules don't match inside chains.** bashlex normalizes
-  the outer quotes away, so the extracted segment (`python3 -c import yaml; ...`) can't match
-  a quote-bearing rule. Standalone, CC still matches such rules directly. For inline use,
-  prefer a wrapper script allowlisted by path.
-- **Mid-string `*` allow rules are ignored** (e.g. `gh api repos/*/statuses *`). Conservative
-  by design; such chains just prompt.
 - **bash grammar, not zsh.** Exotic zsh-only syntax may not parse → bail → prompt.
 - **`~/.claude/settings.local.json` is not read** (uncertain whether CC applies it to
   permissions; omitting it only makes the hook more conservative).
