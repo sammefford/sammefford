@@ -28,6 +28,7 @@ ALLOW = [
     "git rev-parse *",
     "git fetch *",
     "git remote -v",
+    "read *",
     "uv run pytest*",
     "npm run build:*",
     "base64 *",
@@ -142,26 +143,33 @@ def test_deny_no_false_positive_on_readonly_find():
 
 # --- _inspect: parsing, splitting, danger detection --------------------------
 def test_inspect_simple_chain_splits_and_drops_redirects():
-    segments, top_level_count, reason = aac._inspect("cd x && git log -1 2>&1; echo hi | grep h")
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "cd x && git log -1 2>&1; echo hi | grep h"
+    )
     assert reason is None
     assert segments == ["cd x", "git log -1", "echo hi", "grep h"]
     assert top_level_count == 4
+    assert had_compound is False
 
 
 def test_inspect_recurses_into_command_substitution():
     # The substitution's inner command becomes an extra segment, not an outright refusal.
-    segments, top_level_count, reason = aac._inspect('echo "$(git rev-parse HEAD)" && echo ok')
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        'echo "$(git rev-parse HEAD)" && echo ok'
+    )
     assert reason is None
     # bashlex strips the surrounding quotes from the extracted word text.
     assert segments == ["echo $(git rev-parse HEAD)", "git rev-parse HEAD", "echo ok"]
     assert top_level_count == 2  # the nested segment doesn't count toward the chain gate
+    assert had_compound is False
 
 
 def test_inspect_recurses_into_backticks_too():
-    segments, top_level_count, reason = aac._inspect("echo `whoami`")
+    segments, top_level_count, had_compound, reason = aac._inspect("echo `whoami`")
     assert reason is None
     assert segments == ["echo `whoami`", "whoami"]
     assert top_level_count == 1  # single top-level command; substitution doesn't make a chain
+    assert had_compound is False
 
 
 def test_inspect_still_refuses_unsafe_construct_nested_inside_substitution():
@@ -169,15 +177,12 @@ def test_inspect_still_refuses_unsafe_construct_nested_inside_substitution():
 
 
 def test_inspect_recurses_into_process_substitution():
-    segments, top_level_count, reason = aac._inspect("diff <(git log) <(git fetch)")
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "diff <(git log) <(git fetch)"
+    )
     assert reason is None
     assert segments == ["diff <(git log) <(git fetch)", "git log", "git fetch"]
     assert top_level_count == 1  # one top-level command; process substitution isn't a chain
-
-
-def test_inspect_refuses_compound_and_subshell():
-    assert aac._inspect("for d in a b; do echo $d; done")[0] is None
-    assert aac._inspect("(echo hi)")[0] is None
 
 
 def test_inspect_refuses_inline_assignment():
@@ -192,9 +197,10 @@ def test_inspect_refuses_file_redirect_but_allows_fd_and_devnull():
 
 def test_inspect_keeps_quoted_operators_inside_one_command():
     # The ';' and '&&' are inside quotes -> a single echo argument, not splits.
-    segments, _, reason = aac._inspect('echo "a; rm -rf ~ && reboot"')
+    segments, _, had_compound, reason = aac._inspect('echo "a; rm -rf ~ && reboot"')
     assert reason is None
     assert segments == ["echo a; rm -rf ~ && reboot"]
+    assert had_compound is False
 
 
 # --- _under_safe_dir -----------------------------------------------------------
@@ -248,10 +254,28 @@ def test_inspect_rejects_dynamic_redirect_path():
     assert aac._inspect('echo hi > "$(pwd)/out.log"', REDIRECT_SAFE_DIRS)[0] is None
 
 
-def test_inspect_rejects_input_redirect_even_when_extension_and_dir_match():
-    # Only `>`/`>>` (writes) are eligible; `<` (reads arbitrary file content into the
-    # command) keeps the old behavior of refusing any non-fd-dup/non-/dev/null redirect.
-    assert aac._inspect("cat < /tmp/safe/out.log", REDIRECT_SAFE_DIRS)[0] is None
+def test_inspect_approves_input_redirect_from_safe_dir_with_literal_absolute_path():
+    # Input redirects `<` from literal absolute paths under safe directories are now
+    # approved (Task 4), unlike output redirects which require a safe extension.
+    segments, _, _, reason = aac._inspect("cat < /tmp/safe/out.log", REDIRECT_SAFE_DIRS)
+    assert reason is None
+    assert segments == ["cat"]
+
+
+def test_inspect_approves_input_redirect_with_no_extension_restriction():
+    # Unlike output redirects (which require a safe extension -- see
+    # _SAFE_REDIRECT_EXTENSIONS), an input redirect has no extension gate at all: reading
+    # a file can't clobber it, so an extension that would be refused for a write (or one
+    # not in the safe list, e.g. .pem/.key-shaped names) is still fine to read from,
+    # provided the path is still literal, absolute, and under a safe dir. This locks in
+    # the exact design point Task 4 introduced, so a future edit can't quietly re-add an
+    # extension check to the `<` branch "for consistency" with the `>`/`>>` branch.
+    segments, _, _, reason = aac._inspect("cat < /tmp/safe/id_rsa", REDIRECT_SAFE_DIRS)
+    assert reason is None
+    assert segments == ["cat"]
+    # .txt is deliberately excluded from _SAFE_REDIRECT_EXTENSIONS for writes; reads
+    # aren't gated by that set at all, so it must still be approved here.
+    assert aac._inspect("cat < /tmp/safe/secret.txt", REDIRECT_SAFE_DIRS)[0] == ["cat"]
 
 
 def test_decide_approves_chain_with_safe_redirect():
@@ -297,7 +321,6 @@ def test_decide_rejects_dangerous_constructs():
     assert not aac.decide("echo $(whoami) && echo hi", ALLOW, DENY, SAFE_DIRS)  # whoami isn't allowlisted
     assert not aac.decide("echo hi && git log > out.txt", ALLOW, DENY, SAFE_DIRS)
     assert not aac.decide("FOO=bar git log && echo hi", ALLOW, DENY, SAFE_DIRS)
-    assert not aac.decide("for d in a b; do echo $d; done", ALLOW, DENY, SAFE_DIRS)
 
 
 def test_decide_approves_command_substitution_when_inner_command_is_allowlisted():
@@ -379,6 +402,244 @@ def test_decide_rejects_chain_when_midstring_wildcard_rule_doesnt_line_up():
 def test_decide_approves_chain_with_rule_containing_literal_quotes():
     cmd = """python3 -c "import yaml; yaml.safe_load(open('foo.yaml'))" && echo ok"""
     assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+
+def test_inspect_approves_subshell_grouping_when_body_is_safe():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "(cd ~/dev/x && git log --oneline -1)"
+    )
+    assert reason is None
+    assert segments == ["cd ~/dev/x", "git log --oneline -1"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_approves_brace_group_when_body_is_safe():
+    segments, top_level_count, had_compound, reason = aac._inspect("{ echo hi; echo bye; }")
+    assert reason is None
+    assert segments == ["echo hi", "echo bye"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_approves_one_level_of_nested_subshell():
+    segments, _, _, reason = aac._inspect("(echo hi && (echo mid))")
+    assert reason is None
+    assert segments == ["echo hi", "echo mid"]
+
+
+def test_inspect_refuses_two_levels_of_nested_subshell():
+    assert aac._inspect("(echo hi && (echo mid && (echo deep)))")[0] is None
+
+
+def test_inspect_refuses_until_loop():
+    # 'until' is a recognized bashlex node kind but deliberately not in
+    # _SUPPORTED_COMPOUND_KEYWORDS -- out of scope for this plan.
+    assert aac._inspect("until false; do echo x; done")[0] is None
+
+
+def test_inspect_refuses_file_redirect_on_a_command_inside_a_compound_body():
+    # Redirect checking (visitredirect) is now reachable from inside a compound body for
+    # the first time -- confirm it still refuses a plain unsafe redirect there, exactly
+    # as it always has at the top level.
+    assert aac._inspect("(echo hi > out.txt)")[0] is None
+
+
+def test_decide_approves_standalone_subshell_when_body_allowlisted():
+    # No chaining at all -- a bare compound is now eligible for approval on its own,
+    # since Claude Code's native matcher never handles compounds, chained or not.
+    assert aac.decide("(cd ~/dev/x && git log --oneline -1)", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_standalone_subshell_with_unallowlisted_command():
+    assert not aac.decide("(cd ~/dev/x && git status --short)", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_subshell_chained_with_simple_command():
+    assert aac.decide(
+        "(cd ~/dev/x && git log --oneline -1) && echo done", ALLOW, DENY, SAFE_DIRS
+    )
+
+
+def test_inspect_approves_two_sibling_top_level_compounds():
+    # Regression test for _compound_depth counter: both compounds must be recognized as
+    # top-level, not the second one treated as nested. Uses two for-loops chained together.
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "for a in x; do echo $a; done && for b in y; do echo $b; done"
+    )
+    assert reason is None
+    assert segments == ["echo $a", "echo $b"]
+    assert top_level_count == 2
+    assert had_compound is True
+
+
+def test_decide_approves_two_sibling_top_level_compounds():
+    # End-to-end approval when both for-loops' commands are allowlisted. The dedicated
+    # regression guard for _compound_depth resetting between top-level items is the
+    # `top_level_count == 2` assertion in test_inspect_approves_two_sibling_top_level_compounds
+    # above -- decide()'s is_lone_compound branch would also accept a miscounted "1" here,
+    # so this test alone wouldn't catch that regression.
+    cmd = "for a in x; do echo $a; done && for b in y; do echo $b; done"
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+# --- for-loop support -------------------------------------------------------
+def test_inspect_approves_for_loop_with_literal_word_list():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "for r in dev stage prod; do git log --oneline -1 origin/$r; done"
+    )
+    assert reason is None
+    assert segments == ["git log --oneline -1 origin/$r"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_approves_for_loop_with_command_substitution_source():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "for f in $(git log --oneline -3); do grep x $f; done"
+    )
+    assert reason is None
+    assert segments == ["git log --oneline -3", "grep x $f"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_refuses_for_loop_without_in_clause():
+    assert aac._inspect("for x; do echo $x; done")[0] is None
+
+
+def test_inspect_refuses_for_loop_with_mixed_literal_and_substitution_source():
+    assert aac._inspect("for f in a $(git log -1); do echo $f; done")[0] is None
+
+
+def test_inspect_refuses_for_loop_with_variable_iteration_source():
+    # A bare $VAR as the source isn't a literal word list or a substitution -- refuse
+    # rather than guess what it expands to.
+    assert aac._inspect("for f in $FILES; do echo $f; done")[0] is None
+
+
+def test_decide_approves_for_loop_over_literal_list_when_body_allowlisted():
+    cmd = "for r in dev stage prod; do git log --oneline -1 origin/$r; done"
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_for_loop_with_unallowlisted_body_command():
+    cmd = "for r in dev stage prod; do git status --short; done"
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_for_loop_over_substitution_when_both_allowlisted():
+    cmd = "for f in $(git log --oneline -3); do grep x $f; done"
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_for_loop_whose_command_word_is_a_bare_variable():
+    # `$c` as the command word stays literal text in the segment ("$c file") and simply
+    # won't match any sane allow pattern -- no special-casing needed (design doc Section 2).
+    cmd = "for c in ls cat; do $c file; done"
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+# --- if/elif/else support ---------------------------------------------------
+def test_inspect_approves_if_else_when_every_branch_is_safe():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "if git log -1; then echo clean; else echo dirty; fi"
+    )
+    assert reason is None
+    assert segments == ["git log -1", "echo clean", "echo dirty"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_approves_if_elif_else_chain():
+    segments, _, _, reason = aac._inspect(
+        "if git log -1; then echo a; elif git fetch origin; then echo b; else echo c; fi"
+    )
+    assert reason is None
+    assert segments == ["git log -1", "echo a", "git fetch origin", "echo b", "echo c"]
+
+
+def test_inspect_approves_one_level_nested_subshell_inside_if():
+    segments, _, _, reason = aac._inspect("if true; then (echo hi && echo bye); fi")
+    assert reason is None
+    assert "echo hi" in segments and "echo bye" in segments
+
+
+def test_decide_approves_if_else_when_every_branch_and_condition_allowlisted():
+    cmd = "if git log -1; then echo clean; else echo dirty; fi"
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_if_else_with_one_unallowlisted_branch():
+    # all-or-nothing across every branch: the then-branch passes, but the else branch's
+    # command doesn't -- the whole compound must still refuse.
+    cmd = "if git log -1; then echo clean; else git status --short; fi"
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_if_with_unallowlisted_condition():
+    cmd = "if git status --short; then echo clean; fi"
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_inspect_approves_while_loop_body():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "while read -r line; do echo $line; done"
+    )
+    assert reason is None
+    assert segments == ["read -r line", "echo $line"]
+    assert top_level_count == 1
+    assert had_compound is True
+
+
+def test_inspect_approves_while_loop_with_safe_input_redirect():
+    segments, _, _, reason = aac._inspect(
+        "while read -r line; do echo $line; done < /tmp/safe/input.txt", REDIRECT_SAFE_DIRS
+    )
+    assert reason is None
+    assert segments == ["read -r line", "echo $line"]
+
+
+def test_inspect_refuses_while_loop_with_relative_input_redirect():
+    assert (
+        aac._inspect("while read -r line; do echo $line; done < input.txt", REDIRECT_SAFE_DIRS)[0]
+        is None
+    )
+
+
+def test_inspect_refuses_while_loop_with_input_redirect_outside_safe_dirs():
+    assert (
+        aac._inspect(
+            "while read -r line; do echo $line; done < /var/secret/input.txt",
+            REDIRECT_SAFE_DIRS,
+        )[0]
+        is None
+    )
+
+
+def test_inspect_refuses_while_loop_with_dynamic_input_redirect():
+    assert (
+        aac._inspect(
+            'while read -r line; do echo $line; done < "$HOME/input.txt"', REDIRECT_SAFE_DIRS
+        )[0]
+        is None
+    )
+
+
+def test_decide_approves_while_loop_with_safe_redirect_when_body_allowlisted():
+    cmd = "while read -r line; do echo $line; done < /tmp/safe/input.txt"
+    assert aac.decide(cmd, ALLOW, DENY, REDIRECT_SAFE_DIRS)
+
+
+def test_decide_rejects_while_loop_redirect_outside_safe_dirs_even_when_body_allowlisted():
+    cmd = "while read -r line; do echo $line; done < /var/secret/input.txt"
+    assert not aac.decide(cmd, ALLOW, DENY, REDIRECT_SAFE_DIRS)
+
+
+def test_inspect_refuses_two_levels_of_nesting_across_different_construct_types():
+    # for(depth 1) > if(depth 2) > subshell(depth 3) -- one level too many.
+    assert aac._inspect("for x in a; do if true; then (echo hi); fi; done")[0] is None
 
 
 def _run_standalone() -> int:

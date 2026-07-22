@@ -2,3 +2,4 @@
 #   uv pip install --target vendor bashlex
 # It is intentionally not committed — install it once per machine.
 vendor/
+__pycache__/

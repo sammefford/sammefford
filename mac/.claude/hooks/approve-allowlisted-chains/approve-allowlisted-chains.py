@@ -21,13 +21,18 @@ Safety model — the only dangerous divergence from Claude Code is *over*-approv
 design makes that impossible rather than trying to replicate CC exactly:
 
 * Splitting and danger-detection use bashlex, not hand-rolled string scanning, so we
-  agree with the shell that actually runs the command. A compound command (subshell,
-  group, for/while/if/case), a function, an inline `VAR=val` assignment, or a heredoc is
-  refused outright. A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, or an
+  agree with the shell that actually runs the command. `for`/`if`/`while` and subshell/group
+  compounds are inspected (see "Compound command support" in README.md) rather than refused
+  outright; `case` remains unparseable by the vendored bashlex, and a function, an inline
+  `VAR=val` assignment, or a heredoc is still refused outright anywhere, including inside a
+  compound body. A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, an
   output redirect (`>`/`>>`) to a literal (no `$VAR`/`$(...)`) absolute path that both ends
-  in a safe extension (`.log`, `.out`, `.err`, `.tmp`) and falls under a trusted directory
-  (see `_load_safe_redirect_dirs`) — anything else (input redirects, relative paths,
-  dynamic paths, other extensions/directories) is refused outright.
+  in a safe extension (`.log`, `.out`, `.err`, `.tmp`, `.diff`, `.json`) and falls under a
+  trusted directory (see `_load_safe_redirect_dirs`), or an input redirect (`<`) to a
+  literal absolute path under a trusted directory — no extension restriction for reads,
+  since reading a file can't clobber it the way writing can. Anything else (relative
+  paths, dynamic paths, an output redirect with an unsafe extension or outside a trusted
+  directory) is refused outright.
 * Command/process substitution (`$(...)`, backticks, `<(...)`) is not refused outright —
   its inner command is recursed into and treated as just another segment, subject to the
   same allow/deny check and the same unsafe-construct detection. This is safe because
@@ -202,6 +207,16 @@ _KNOWN_BIN_DIRS = frozenset(
     }
 )
 
+# Nesting cap for compound commands: 1 = the top-level compound itself, 2 = one further
+# nested compound inside its body. Anything deeper refuses outright -- see design doc.
+_MAX_COMPOUND_DEPTH = 2
+
+# Compound-command keywords this hook is willing to walk into (see design doc). Empty until
+# later tasks in this plan add "for"/"if"/"while" one at a time. Subshell/group (a bare "("
+# or "{" as the compound's first element) are supported unconditionally below, not gated by
+# this set, since they carry no keyword node of their own.
+_SUPPORTED_COMPOUND_KEYWORDS: frozenset[str] = frozenset({"for", "if", "while"})
+
 
 def _canonicalize_command_word(word: str) -> str:
     """`/usr/bin/tail` -> `tail`. Anything not under a `_KNOWN_BIN_DIRS` entry, including
@@ -266,9 +281,10 @@ if bashlex is not None:
         reason) on any construct that makes blanket approval unsafe.
 
         `commands` holds every simple-command segment found, including ones nested inside
-        a command/process substitution. `top_level_commands` counts only the ones found
-        outside any substitution, so the ">=2 segment" chain gate in `decide()` can't be
-        satisfied by a single command that merely contains a substitution.
+        a command/process substitution or compound body. `top_level_commands` counts only the ones found
+        outside any substitution or compound, so the ">=2 segment" chain gate in `decide()` can't be
+        satisfied by a single command that merely contains a substitution, and a compound
+        counts as one top-level item regardless of how many commands it contains.
 
         `safe_dirs` bounds which absolute paths a real-file redirect may target (see
         `visitredirect`); pass `[]` to refuse every real-file redirect as before."""
@@ -276,7 +292,9 @@ if bashlex is not None:
         def __init__(self, safe_dirs: list[str] | None = None) -> None:
             self.commands: list[str] = []
             self.top_level_commands = 0
+            self.had_compound = False
             self._subst_depth = 0
+            self._compound_depth = 0
             self._safe_dirs = safe_dirs or []
             self.reason: str | None = None
 
@@ -296,9 +314,92 @@ if bashlex is not None:
             self._subst_depth -= 1
             return False
 
-        def visitcompound(self, n, list, redirects) -> bool:
-            self._refuse("compound command (subshell, group, for/while/if/case)")
-            return False
+        def visitcompound(self, n, list, redirects) -> bool | None:
+            """Compound commands (for/if/while, subshell/group) are inspected rather than
+            refused outright: walk into the construct and let the base class's own
+            recursion (or visitfor, added by a later task) collect every command that
+            could execute, subject to the same allow/deny check as a plain chain. Refuses
+            outright on an unsupported shape (case is unparseable by bashlex and never
+            reaches here; until/select are unsupported by this hook) or on nesting beyond
+            one extra level deep.
+
+            Depth is incremented unconditionally before any check, so visitnodeend's
+            decrement (which always runs) stays balanced even on early refusal. A
+            top-level compound counts as exactly one top-level segment for decide()'s
+            chain gate -- tracked via `had_compound`/`top_level_commands` here, not per
+            inner command (see visitcommand's own gating)."""
+            self._compound_depth += 1
+            if self.reason is not None:
+                return False
+            if self._compound_depth > _MAX_COMPOUND_DEPTH:
+                self._refuse(
+                    "compound command nested too deeply (only one nested level is supported)"
+                )
+                return False
+            inner = list[0] if list else None
+            is_group = (
+                inner is not None
+                and inner.kind == "reservedword"
+                and inner.word in ("(", "{")
+            )
+            is_supported_keyword = inner is not None and inner.kind in _SUPPORTED_COMPOUND_KEYWORDS
+            if inner is None or not (is_group or is_supported_keyword):
+                shape = inner.kind if inner is not None else "empty"
+                self._refuse(f"unsupported compound shape ({shape})")
+                return False
+            if self._compound_depth == 1 and self._subst_depth == 0:
+                self.top_level_commands += 1
+                self.had_compound = True
+            return None  # let the base class recurse into `list` and `redirects`
+
+        def visitfor(self, n, parts) -> bool | None:
+            """`for var in w1 w2 ...; do body; done`. The iteration source (after `in`)
+            must be either all-literal words, or a single command substitution/backtick/
+            process substitution spanning the entire word -- checked the same way any
+            other substitution is (visitcommandsubstitution/visitprocesssubstitution), no
+            separate "is this bounded" heuristic (design doc Section 2). Returning None
+            lets the base class recurse through every part, including the item words
+            (triggering nested-substitution handling when present) and the body's `list`
+            node (collecting its commands via visitcommand)."""
+            if self.reason is not None:
+                return False
+            in_idx = next(
+                (i for i, p in enumerate(parts) if p.kind == "reservedword" and p.word == "in"),
+                None,
+            )
+            if in_idx is None:
+                self._refuse("for loop without an explicit 'in' word list is not supported")
+                return False
+            items = []
+            for p in parts[in_idx + 1 :]:
+                if p.kind != "word":
+                    break
+                items.append(p)
+            if not items:
+                self._refuse("for loop has no iteration words")
+                return False
+            all_literal = all(not w.parts for w in items)
+            single_subst = (
+                len(items) == 1
+                and len(items[0].parts) == 1
+                and items[0].parts[0].kind in ("commandsubstitution", "processsubstitution")
+                and (
+                    (items[0].word.startswith("$(") and items[0].word.endswith(")"))
+                    or (items[0].word.startswith("`") and items[0].word.endswith("`"))
+                    or (items[0].word.startswith("<(") and items[0].word.endswith(")"))
+                )
+            )
+            if not (all_literal or single_subst):
+                self._refuse(
+                    "for loop iteration source must be a literal word list or a single "
+                    "command substitution"
+                )
+                return False
+            return None
+
+        def visitnodeend(self, n) -> None:
+            if n.kind == "compound":
+                self._compound_depth -= 1
 
         def visitfunction(self, n, name, body, parts) -> bool:
             self._refuse("function definition")
@@ -313,77 +414,92 @@ if bashlex is not None:
             word = getattr(output, "word", None)
             if word == "/dev/null":
                 return
+            literal_abs = word is not None and not output.parts and os.path.isabs(word)
             if (
                 type in (">", ">>")
-                and word is not None
-                and not output.parts  # literal text only: no $VAR / $(...) / `...` inside
-                and os.path.isabs(word)
+                and literal_abs
                 and os.path.splitext(word)[1].lower() in _SAFE_REDIRECT_EXTENSIONS
                 and _under_safe_dir(word, self._safe_dirs)
             ):
                 return
+            if type == "<" and literal_abs and _under_safe_dir(word, self._safe_dirs):
+                return
             self._refuse(
-                "redirect to a file (only fd dups, /dev/null, and >/>> to a literal "
-                "absolute .log/.out/.err/.tmp path under a trusted directory are allowed)"
+                "redirect to a file (only fd dups, /dev/null, >/>> to a literal absolute "
+                ".log/.out/.err/.tmp/.diff/.json path under a trusted directory, and < from a literal "
+                "absolute path under a trusted directory, are allowed)"
             )
 
         def visitcommand(self, n, parts) -> None:
             words = [p.word for p in parts if p.kind == "word"]
             if words:
                 self.commands.append(" ".join(words))
-                if self._subst_depth == 0:
+                if self._subst_depth == 0 and self._compound_depth == 0:
                     self.top_level_commands += 1
 
 
 def _inspect(
     command: str, safe_dirs: list[str] | None = None
-) -> tuple[list[str] | None, int, str | None]:
-    """Parse `command` and return (segments, top_level_count, None) for a safe plain
-    chain, or (None, 0, reason) when it cannot be safely auto-approved. `segments`
-    includes commands nested inside a substitution; `top_level_count` excludes them, so
-    callers can gate "is this actually a chain" on top-level segments only.
+) -> tuple[list[str] | None, int, bool, str | None]:
+    """Parse `command` and return (segments, top_level_count, had_compound, None) for a
+    safe command, or (None, 0, False, reason) when it cannot be safely auto-approved.
+    `segments` includes commands nested inside a substitution or a compound body;
+    `top_level_count` counts only top-level items (a plain command, or an entire compound
+    counted once regardless of how many commands are inside it) -- see decide()'s gate
+    logic. `had_compound` is True iff at least one top-level item was a compound command
+    (for/if/while/subshell/group), used to decide whether a lone top-level item is
+    eligible for approval on its own (a compound always is; a plain command only is via
+    the existing path-canonicalization case).
 
     `safe_dirs` (default none) bounds which absolute paths a real-file redirect may
     target; see `_ChainInspector`."""
     if bashlex is None:
-        return None, 0, "bashlex unavailable"
+        return None, 0, False, "bashlex unavailable"
     try:
         trees = bashlex.parse(command)
     except (bashlex.errors.ParsingError, NotImplementedError):
-        return None, 0, "not parseable as a simple command chain"
+        return None, 0, False, "not parseable as a simple command chain"
     except Exception as exc:  # bashlex can raise assorted errors on exotic input
-        return None, 0, f"parse error ({type(exc).__name__})"
+        return None, 0, False, f"parse error ({type(exc).__name__})"
     inspector = _ChainInspector(safe_dirs)
     try:
         for tree in trees:
             inspector.visit(tree)
     except Exception as exc:
-        return None, 0, f"walk error ({type(exc).__name__})"
+        return None, 0, False, f"walk error ({type(exc).__name__})"
     if inspector.reason is not None:
-        return None, 0, inspector.reason
-    return inspector.commands, inspector.top_level_commands, None
+        return None, 0, False, inspector.reason
+    return inspector.commands, inspector.top_level_commands, inspector.had_compound, None
 
 
 def decide(
     command: str, allow: list[str], deny: list[str], safe_dirs: list[str] | None = None
 ) -> bool:
-    """True iff `command` is either a plain chain of >= 2 top-level simple commands, or a
-    single top-level command whose only obstacle was an absolute path into a known bin
-    directory (see `_canonicalize_segment`) — and, either way, every segment (including
-    any nested inside a substitution, checked in both its raw and canonicalized form)
-    matches an allow rule while none matches a deny rule.
+    """True iff `command` is safely approvable: either a plain chain of >= 2 top-level
+    items, a single top-level item that is a compound command (for/if/while/subshell/
+    group -- Claude Code's native matcher never handles these, chained or alone), or a
+    single top-level plain command whose only obstacle was an absolute path into a known
+    bin directory (see `_canonicalize_segment`) -- and, in every case, every underlying
+    command (including any nested inside a substitution or a compound body, checked in
+    both its raw and canonicalized form) matches an allow rule while none matches a deny
+    rule.
 
     `safe_dirs`: directories a real-file redirect may target. Defaults to
-    `_load_safe_redirect_dirs()` (live settings/env) when not given — callers that need
+    `_load_safe_redirect_dirs()` (live settings/env) when not given -- callers that need
     deterministic results (tests) should pass a fixed list explicitly."""
     if safe_dirs is None:
         safe_dirs = _load_safe_redirect_dirs()
-    segments, top_level_count, _ = _inspect(command, safe_dirs)
+    segments, top_level_count, had_compound, _ = _inspect(command, safe_dirs)
     if not segments or not allow:
         return False
     is_chain = top_level_count >= 2
-    is_lone_path_command = top_level_count == 1 and _canonicalize_segment(segments[0]) != segments[0]
-    if not is_chain and not is_lone_path_command:
+    is_lone_compound = top_level_count == 1 and had_compound
+    is_lone_path_command = (
+        top_level_count == 1
+        and not had_compound
+        and _canonicalize_segment(segments[0]) != segments[0]
+    )
+    if not (is_chain or is_lone_compound or is_lone_path_command):
         return False
     for segment in segments:
         canon = _canonicalize_segment(segment)
@@ -428,12 +544,17 @@ def _check() -> int:
     safe_dirs = _load_safe_redirect_dirs()
     verdict = decide(command, allow, deny, safe_dirs)
     print(f"decision: {'AUTO-APPROVE (no prompt)' if verdict else 'DEFER to normal prompt'}\n")
-    segments, top_level_count, reason = _inspect(command, safe_dirs)
+    segments, top_level_count, had_compound, reason = _inspect(command, safe_dirs)
     if segments is None:
         print(f"refused: {reason}")
         return 0
-    is_lone_path_command = top_level_count == 1 and _canonicalize_segment(segments[0]) != segments[0]
-    if top_level_count < 2 and not is_lone_path_command:
+    is_lone_compound = top_level_count == 1 and had_compound
+    is_lone_path_command = (
+        top_level_count == 1
+        and not had_compound
+        and _canonicalize_segment(segments[0]) != segments[0]
+    )
+    if top_level_count < 2 and not is_lone_path_command and not is_lone_compound:
         print(f"deferred: not a chain ({top_level_count} top-level segment)")
         return 0
     for segment in segments:
@@ -465,6 +586,7 @@ def _selftest() -> int:
         "git rev-parse *",
         "git fetch *",
         "git remote -v",
+        "read *",
         "base64 *",
         "gh api repos/*/contents/*",
         "python3 -c \"import yaml; yaml.safe_load(open('*'))\"",
@@ -521,8 +643,8 @@ def _selftest() -> int:
         ("echo hi && echo done > /var/log/out.log", False),  # safe extension, unsafe dir
         ("echo hi && echo done > out.log", False),  # relative path always refused
         ("echo hi && echo done > /tmp/safe/$USER.log", False),  # dynamic path refused
-        ("cd x && (echo hi)", False),  # subshell grouping
-        ("for d in a b; do echo $d; done", False),  # compound / control flow
+        ("cd x && (echo hi)", True),  # subshell grouping - now approvable
+        ("for d in a b; do echo $d; done", True),  # for loop with literal word list - now approvable
         ("FOO=bar git log --oneline && echo hi", False),  # inline assignment
         ("echo hi && find . -exec rm {} +", False),  # -exec matches deny
         ("echo hi && find . -maxdepth 1 -delete", False),  # -delete matches deny
@@ -540,6 +662,17 @@ def _selftest() -> int:
             """python3 -c "import yaml; yaml.safe_load(open('foo.yaml'))" && echo ok""",
             True,
         ),  # allow rule itself contains literal quotes around its wildcard
+        # compound-command support
+        ("for r in dev stage prod; do git log --oneline -1 origin/$r; done", True),
+        ("for r in dev stage prod; do git status --short; done", False),
+        ("if git log -1; then echo clean; else echo dirty; fi", True),
+        ("if git log -1; then echo clean; else git status --short; fi", False),
+        ("(cd ~/dev/x && git log --oneline -1)", True),
+        ("(cd ~/dev/x && git status --short)", False),
+        ("while read -r line; do echo $line; done < /tmp/safe/input.txt", True),
+        ("while read -r line; do echo $line; done < input.txt", False),
+        ("for x in a; do if true; then (echo hi); fi; done", False),  # nested 3 deep
+        ('case "$x" in a) echo a;; esac', False),  # case stays unparseable/unsupported
     ]
     failures = 0
     for command, expected in cases:

