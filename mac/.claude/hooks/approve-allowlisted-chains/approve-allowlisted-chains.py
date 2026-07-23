@@ -23,9 +23,12 @@ design makes that impossible rather than trying to replicate CC exactly:
 * Splitting and danger-detection use bashlex, not hand-rolled string scanning, so we
   agree with the shell that actually runs the command. `for`/`if`/`while` and subshell/group
   compounds are inspected (see "Compound command support" in README.md) rather than refused
-  outright; `case` remains unparseable by the vendored bashlex, and a function, an inline
-  `VAR=val` assignment, or a heredoc is still refused outright anywhere, including inside a
-  compound body. A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, an
+  outright; `case` remains unparseable by the vendored bashlex, and a function or a heredoc
+  is still refused outright anywhere, including inside a compound body. An inline `VAR=val`
+  assignment is refused unless `val` is wholly a single command/process substitution
+  (`VAR=$(cmd)`) with no literal text mixed in — see "Variable assignment support" in
+  README.md for what that lets through and the risk it knowingly reopens.
+* A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, an
   output redirect (`>`/`>>`) to a literal (no `$VAR`/`$(...)`) absolute path that both ends
   in a safe extension (`.log`, `.out`, `.err`, `.tmp`, `.diff`, `.json`) and falls under a
   trusted directory (see `_load_safe_redirect_dirs`), or an input redirect (`<`) to a
@@ -218,6 +221,25 @@ _MAX_COMPOUND_DEPTH = 2
 _SUPPORTED_COMPOUND_KEYWORDS: frozenset[str] = frozenset({"for", "if", "while"})
 
 
+def _is_single_substitution(value_word: str, parts) -> bool:
+    """True iff `parts` (a word/assignment node's nested expansions) is exactly one
+    command or process substitution, and `value_word` (the text expected to be wholly
+    that substitution -- a for-loop's iteration word, or an assignment's value half
+    after `NAME=`) itself starts and ends with that substitution's own delimiters.
+    Checking the delimiters on `value_word` directly (rather than comparing it to the
+    substitution node's own `.word`) is what catches literal text mixed in before or
+    after the substitution (`prefix$(cmd)`, `$(cmd)suffix`) -- such a mix would smuggle
+    un-vetted literal text in alongside the one command this hook does check, so it must
+    still refuse. Shared by `visitfor` and `visitassignment`."""
+    if len(parts) != 1 or parts[0].kind not in ("commandsubstitution", "processsubstitution"):
+        return False
+    return (
+        (value_word.startswith("$(") and value_word.endswith(")"))
+        or (value_word.startswith("`") and value_word.endswith("`"))
+        or (value_word.startswith("<(") and value_word.endswith(")"))
+    )
+
+
 def _canonicalize_command_word(word: str) -> str:
     """`/usr/bin/tail` -> `tail`. Anything not under a `_KNOWN_BIN_DIRS` entry, including
     an unrecognized absolute path, is returned unchanged."""
@@ -379,15 +401,8 @@ if bashlex is not None:
                 self._refuse("for loop has no iteration words")
                 return False
             all_literal = all(not w.parts for w in items)
-            single_subst = (
-                len(items) == 1
-                and len(items[0].parts) == 1
-                and items[0].parts[0].kind in ("commandsubstitution", "processsubstitution")
-                and (
-                    (items[0].word.startswith("$(") and items[0].word.endswith(")"))
-                    or (items[0].word.startswith("`") and items[0].word.endswith("`"))
-                    or (items[0].word.startswith("<(") and items[0].word.endswith(")"))
-                )
+            single_subst = len(items) == 1 and _is_single_substitution(
+                items[0].word, items[0].parts
             )
             if not (all_literal or single_subst):
                 self._refuse(
@@ -405,8 +420,41 @@ if bashlex is not None:
             self._refuse("function definition")
             return False
 
-        def visitassignment(self, n, word) -> None:
-            self._refuse("inline environment assignment (VAR=val cmd)")
+        def visitassignment(self, n, word) -> bool | None:
+            """`VAR=value`. Refused outright unless `value` is wholly a single command
+            or process substitution (`VAR=$(cmd)`, `` VAR=`cmd` ``, `VAR=<(cmd)`) --
+            the same single-substitution gate `visitfor` uses for a for-loop's
+            iteration source (see `_is_single_substitution`). A plain literal value, or
+            one mixing literal text with a substitution (`VAR=prefix$(cmd)`), still
+            refuses outright: only the inner command is ever checked against
+            allow/deny, so literal text folded into the same value would never be
+            vetted at all, and a plain literal has no nested command to vet in the
+            first place.
+
+            When accepted, the substitution is left to the base class's own recursion
+            (the same path a command word's nested substitution already takes) and this
+            assignment counts as a top-level segment in its own right -- mirroring
+            `visitcommand`'s own gating -- so `VAR=$(cmd) && echo "$VAR"` can qualify as
+            a chain outside a loop too, not just inside one.
+
+            Accepting this reopens a real gap the chain-of-approved-commands model
+            doesn't otherwise have: the captured value can flow into a *later*,
+            unrelated statement (e.g. an unquoted `echo $VAR` reinterpolating it as new
+            words, or a decoded secret handed to `echo`) that this hook has no way to
+            tie back to "was produced by an approved command." That risk was discussed
+            and accepted deliberately (see docs/) rather than overlooked."""
+            if self.reason is not None:
+                return False
+            value = word.partition("=")[2]
+            if not _is_single_substitution(value, n.parts):
+                self._refuse(
+                    "inline assignment whose value is not wholly a single command "
+                    "substitution (VAR=val or VAR=partial$(cmd)text)"
+                )
+                return False
+            if self._subst_depth == 0 and self._compound_depth == 0:
+                self.top_level_commands += 1
+            return None  # let the base class recurse into the substitution
 
         def visitredirect(self, n, input, type, output, heredoc) -> None:
             if isinstance(output, int):
@@ -645,7 +693,28 @@ def _selftest() -> int:
         ("echo hi && echo done > /tmp/safe/$USER.log", False),  # dynamic path refused
         ("cd x && (echo hi)", True),  # subshell grouping - now approvable
         ("for d in a b; do echo $d; done", True),  # for loop with literal word list - now approvable
-        ("FOO=bar git log --oneline && echo hi", False),  # inline assignment
+        ("FOO=bar git log --oneline && echo hi", False),  # env-prefixed command, not a bare assignment
+        ("x=bar && echo hi", False),  # literal assignment value, no nested command to vet
+        (
+            "r=$(git log --oneline -1) && echo hi",
+            True,
+        ),  # VAR=$(cmd): assignment approvable when the nested command is allowlisted
+        (
+            "r=$(git status) && echo hi",
+            False,
+        ),  # VAR=$(cmd) but git status isn't allowlisted
+        (
+            "r=a$(git log -1) && echo hi",
+            False,
+        ),  # literal text mixed into the substitution -- still refused
+        (
+            "for b in x y; do r=$(git log --oneline -1 origin/$b); echo \"$b -> $r\"; done",
+            True,
+        ),  # the exact shape that prompted this change: capture-then-echo inside a for loop
+        (
+            'for b in x; do r=$(git status); echo "$r"; done',
+            False,
+        ),  # same shape, nested command not allowlisted
         ("echo hi && find . -exec rm {} +", False),  # -exec matches deny
         ("echo hi && find . -maxdepth 1 -delete", False),  # -delete matches deny
         ("git status && echo done", False),  # git status not allowlisted
