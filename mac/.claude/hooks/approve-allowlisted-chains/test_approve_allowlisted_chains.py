@@ -186,6 +186,8 @@ def test_inspect_recurses_into_process_substitution():
 
 
 def test_inspect_refuses_inline_assignment():
+    # Env-var-prefixed command invocation (assignment value "bar" is a plain literal,
+    # not a substitution) -- distinct from the VAR=$(cmd) exception tested below.
     assert aac._inspect("FOO=bar echo hi")[0] is None
 
 
@@ -640,6 +642,77 @@ def test_decide_rejects_while_loop_redirect_outside_safe_dirs_even_when_body_all
 def test_inspect_refuses_two_levels_of_nesting_across_different_construct_types():
     # for(depth 1) > if(depth 2) > subshell(depth 3) -- one level too many.
     assert aac._inspect("for x in a; do if true; then (echo hi); fi; done")[0] is None
+
+
+# --- VAR=$(cmd) assignment support -------------------------------------------
+def test_inspect_approves_assignment_whose_value_is_a_single_substitution():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "r=$(git log --oneline -1) && echo hi"
+    )
+    assert reason is None
+    assert segments == ["git log --oneline -1", "echo hi"]
+    # the assignment counts as a top-level segment in its own right, same as a plain
+    # command -- this is what lets VAR=$(cmd) qualify as a chain outside a loop too.
+    assert top_level_count == 2
+    assert had_compound is False
+
+
+def test_inspect_refuses_assignment_with_plain_literal_value():
+    assert aac._inspect("x=bar && echo hi")[0] is None
+
+
+def test_inspect_refuses_assignment_mixing_literal_text_with_a_substitution():
+    # r=a$(git log -1): the leading "a" is un-vetted literal text riding alongside the
+    # one command this hook does check -- must still refuse, same as the for-loop's
+    # mixed-source case.
+    assert aac._inspect("r=a$(git log -1) && echo hi")[0] is None
+
+
+def test_inspect_refuses_assignment_with_substitution_plus_trailing_literal():
+    assert aac._inspect("r=$(git log -1)b && echo hi")[0] is None
+
+
+def test_inspect_recurses_into_backtick_assignment_too():
+    segments, _, _, reason = aac._inspect("r=`git log -1` && echo hi")
+    assert reason is None
+    assert segments == ["git log -1", "echo hi"]
+
+
+def test_inspect_approves_assignment_inside_a_for_loop_body():
+    # The exact shape that motivated this change: capture a command's output into a
+    # variable, then echo it, once per loop iteration.
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        'for b in x y; do r=$(git log --oneline -1 origin/$b); echo "$b -> $r"; done'
+    )
+    assert reason is None
+    assert segments == [
+        "git log --oneline -1 origin/$b",
+        'echo $b -> $r',
+    ]
+    assert top_level_count == 1  # the whole for-loop is one top-level compound
+    assert had_compound is True
+
+
+def test_decide_approves_assignment_chain_when_nested_command_is_allowlisted():
+    assert aac.decide("r=$(git log --oneline -1) && echo hi", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_assignment_chain_when_nested_command_isnt_allowlisted():
+    assert not aac.decide("r=$(git status) && echo hi", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_assignment_with_literal_value_even_if_unrelated_chain_is_safe():
+    assert not aac.decide("x=bar && echo hi", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_capture_and_echo_for_loop():
+    cmd = 'for b in x y; do r=$(git log --oneline -1 origin/$b); echo "$b -> $r"; done'
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_capture_and_echo_for_loop_with_unallowlisted_nested_command():
+    cmd = 'for b in x; do r=$(git status); echo "$r"; done'
+    assert not aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
 
 
 def _run_standalone() -> int:
