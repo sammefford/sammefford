@@ -55,8 +55,10 @@ would not. The design makes that impossible instead of trying to replicate CC ex
 - **Faithful parsing.** Splitting and danger-detection use bashlex, not string scanning, so
   we agree with the shell that actually runs the command. `for`/`if`/`while` and
   subshell/group compound commands are inspected rather than refused outright (see "Compound
-  command support" section below); `case` statements, function definitions, inline `VAR=val`
-  assignments, and heredocs are refused outright anywhere.
+  command support" section below); `case` statements, function definitions, and heredocs are
+  refused outright anywhere. An inline `VAR=val` assignment is refused unless `val` is wholly
+  a single command/process substitution (`VAR=$(cmd)`) — see "Variable assignment support"
+  below for exactly what that lets through and the risk it knowingly reopens.
 - **Real-file redirects are allowed only in a narrow, literal, resolvable case.** A
   redirect is approved if it's an fd-dup (`2>&1`), `/dev/null`, *or* an output redirect
   (`>`/`>>`) where the target is: (a) **literal text** — no `$VAR`, `$(...)`, or backticks,
@@ -144,10 +146,49 @@ shapes at all.
   any `case` statement is unparseable and always falls back to a normal prompt, regardless of
   allow rules. Revisit only if a future bashlex release adds pattern support.
 - **`until`/`select`** — out of scope; refused the same way any unrecognized construct is.
-- **Functions, heredocs, inline `VAR=val` assignments** — refused anywhere, including inside
-  a compound body, same as at the top level.
+- **Functions and heredocs** — refused anywhere, including inside a compound body, same as
+  at the top level.
+- **Inline `VAR=val` assignments** — refused *unless* `val` is wholly a single command/process
+  substitution; see "Variable assignment support" below.
 
 See `docs/2026-07-21-compound-commands-design.md` for the full design rationale.
+
+## Variable assignment support
+
+`VAR=$(cmd)` (or `` VAR=`cmd` ``, or `VAR=<(cmd)`) is inspected rather than refused outright,
+*only* when the entire value is one command/process substitution with no literal text mixed
+in before or after it — the same all-or-nothing gate a `for` loop's iteration source already
+uses. The substitution's inner command is then checked like any other segment: it must match
+an allow rule and not match a deny rule, same as everywhere else in this hook. The assignment
+itself counts as a top-level segment (like a plain command), so `r=$(git log -1) && echo "$r"`
+can qualify as a chain on its own, not just inside a loop body.
+
+- **Approved:** `r=$(git log --oneline -1) && echo "$r"` — the nested `git log` is checked;
+  if it's allowlisted, the whole chain is.
+- **Refused — no nested command to vet:** `x=bar && echo hi`. A plain literal has nothing for
+  this hook to check, so it's left to a normal prompt, same as before this feature existed.
+- **Refused — literal text riding along with the substitution:** `r=a$(git log -1)` or
+  `r=$(git log -1)b`. Only the inner `git log` would be checked; the literal `a`/`b` folded
+  into the same value would never be vetted at all, so the whole thing refuses.
+
+**Accepted risk, on purpose.** This reopens a real gap the "every segment matches an
+allow rule" model doesn't otherwise have: the captured value can flow into a *later*,
+unrelated statement this hook has no way to tie back to "was produced by an approved
+command." Two concrete shapes to be aware of if you lean on this:
+- **Composition producing an effect no single rule was meant to permit** — e.g.
+  `secret=$(gh api repos/*/contents/.env --jq .content | base64 -d)` followed by
+  `echo "$secret"`: both `gh api repos/*/contents/*` and `base64 *` may be individually
+  allowlisted for legitimate reasons, but chained through a captured variable they can
+  decode and print a secrets file to the transcript.
+- **Injection via untrusted captured data reinterpolated unquoted** — e.g.
+  `title=$(gh pr view 42 --json title --jq .title)` followed by `git log --oneline $title`:
+  a PR title is attacker-controlled text, and an unquoted later expansion lets it inject new
+  arguments/commands into a statement this hook never re-checks.
+
+This was a deliberate, informed tradeoff (not an oversight) — accepted after weighing those
+scenarios against the friction of prompting on every `VAR=$(cmd)` chain. If that tradeoff ever
+needs revisiting, the gate to tighten is `visitassignment`/`_is_single_substitution` in
+`approve-allowlisted-chains.py`.
 
 ## How it's wired
 
@@ -230,7 +271,8 @@ The pieces are deliberately small and separable:
 | `_under_safe_dir()` | `realpath`-resolves both the target and each safe dir before comparing, so symlinked prefixes (e.g. macOS `/tmp` -> `/private/tmp`) can't cause a false mismatch either way. |
 | `_MAX_COMPOUND_DEPTH` | Nesting cap for compound commands (1 = top-level only, 2 = one nested level allowed). |
 | `_SUPPORTED_COMPOUND_KEYWORDS` | Which compound keywords (`for`/`if`/`while`) this hook walks into; subshell/group are handled unconditionally alongside it. Extend *carefully* -- adding a keyword here means its body/conditions get the same allow/deny check as a plain chain, with no further safety net. |
-| `_ChainInspector` | bashlex AST visitor: collects segments (recursing into substitutions), flags unsafe constructs, and gates real-file redirects on `visitredirect`, `visitfor`, and `visitnodeend` per the safety model above. |
+| `_is_single_substitution()` | True iff a word/assignment's value is wholly one command/process substitution, no literal text mixed in. Shared gate for `visitfor`'s iteration source and `visitassignment`'s `VAR=$(cmd)` value. |
+| `_ChainInspector` | bashlex AST visitor: collects segments (recursing into substitutions), flags unsafe constructs, and gates real-file redirects on `visitredirect`, `visitfor`, `visitassignment`, and `visitnodeend` per the safety model above. |
 | `_inspect()`      | Parse + walk → `(segments, top_level_count, had_compound, reason)`. Takes an optional `safe_dirs` list. |
 | `decide()`        | End-to-end `(command, allow, deny, safe_dirs=None) -> bool`. `safe_dirs=None` loads live settings/env; pass a fixed list for deterministic tests. |
 
