@@ -209,7 +209,7 @@
                         ]
                     },
                     {
-                        "description": "My double tap right ⇧ key to caps lock",
+                        "description": "My double tap right \u21e7 key to caps lock",
                         "manipulators": [
                             {
                                 "conditions": [
@@ -1371,7 +1371,9 @@
                                             "control"
                                         ],
                                         "optional": [
-                                            "any"
+                                            "command",
+                                            "option",
+                                            "fn"
                                         ]
                                     }
                                 },
@@ -1580,7 +1582,8 @@
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
                                             "^org\\.pqrs\\.unknownapp\\.conkeror$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -1882,7 +1885,8 @@
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
                                             "^org\\.pqrs\\.unknownapp\\.conkeror$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -2025,7 +2029,8 @@
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
                                             "^org\\.pqrs\\.unknownapp\\.conkeror$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -2101,7 +2106,8 @@
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
                                             "^org\\.pqrs\\.unknownapp\\.conkeror$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -2172,7 +2178,8 @@
                                             "^org\\.gnu\\.Aquamacs$",
                                             "^org\\.vim\\.MacVim$",
                                             "^org\\.pqrs\\.unknownapp\\.conkeror$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
@@ -2521,7 +2528,8 @@
                                         "bundle_identifiers": [
                                             "^com\\.cmuxterm\\.app$",
                                             "^com\\.googlecode\\.iterm2$",
-                                            "^com\\.todesktop\\.230313mzl4w4u92$"
+                                            "^com\\.todesktop\\.230313mzl4w4u92$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_if"
                                     }
