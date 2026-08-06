@@ -1,0 +1,6 @@
+# This repo is PUBLIC. Never commit runtime reports or cached personal IDs
+# from the work-triage skills (inbox/workfront/backlog/triage) — they contain
+# real colleague names, message content, internal Workfront task/project
+# names, and personal user IDs.
+*/reports/
+*-user-id.txt
