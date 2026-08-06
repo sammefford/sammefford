@@ -14,6 +14,7 @@ Personal macOS config for Sam Mefford. Files mirror their home-directory paths u
 | `.cursor/skills/change-logging/` | `~/.cursor/skills/change-logging/` | Same skill with shell scripts (snapshot, log, mirror, run-and-log) |
 | `.local/bin/claude-cmux-hook` | `~/.local/bin/` | Claude Code → cmux notification bridge |
 | `Library/Application Support/Cursor/User/keybindings.json` | `~/Library/Application Support/Cursor/User/` | Cursor keybindings |
+| `backlog.md` | `~/backlog.md` (symlink → repo) | Flat work-capture list, triaged via the `/backlog` skill. Unlike the copied dotfiles above, `~/backlog.md` is a **symlink** to this repo file so frequent appends are auto-tracked. |
 
 ## New machine setup
 
