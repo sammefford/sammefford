@@ -74,7 +74,6 @@
       "Bash(docker pull *)",
       "Bash(docker stats *)",
       "Bash(echo *)",
-      "Bash(env)",
       "Bash(find *)",
       "Bash(fj whoami *)",
       "Bash(gh api graphql -f 'query=*)",
@@ -94,10 +93,12 @@
       "Bash(gh pr view *)",
       "Bash(gh repo view *)",
       "Bash(gh search *)",
+      "Bash(git -C * branch --show-current)",
       "Bash(git -C * check-ignore *)",
       "Bash(git -C * diff *)",
       "Bash(git -C * fetch *)",
       "Bash(git -C * log *)",
+      "Bash(git -C * ls-files *)",
       "Bash(git -C * ls-remote *)",
       "Bash(git -C * ls-tree *)",
       "Bash(git -C * remote -v)",
@@ -105,18 +106,13 @@
       "Bash(git -C * rev-parse *)",
       "Bash(git -C * show *)",
       "Bash(git -C * stash *)",
+      "Bash(git -C * status)",
       "Bash(git -C * status *)",
       "Bash(git -C * worktree list)",
-      "Bash(git -C /Users/sammefford/dev/ao status)",
-      "Bash(git -C /Users/sammefford/dev/renzler-service add *)",
-      "Bash(git -C /Users/sammefford/dev/renzler-service commit -m *)",
-      "Bash(git -C /Users/sammefford/dev/renzler-service ls-files package-lock.json yarn.lock)",
-      "Bash(git -C /Users/sammefford/dev/smefford_ao branch --show-current)",
-      "Bash(git -C /Users/sammefford/dev/smefford_ao status)",
       "Bash(git -C /Users/sammefford/projects/sammefford/mac commit -m *)",
       "Bash(git -C /Users/sammefford/projects/sammefford/mac push)",
       "Bash(git branch --all *)",
-      "Bash(git branch --show-current *)",
+      "Bash(git branch --show-current*)",
       "Bash(git branch -a *)",
       "Bash(git branch -vv)",
       "Bash(git check-ignore *)",
@@ -141,6 +137,9 @@
       "Bash(glab ci status*)",
       "Bash(glab ci trace*)",
       "Bash(glab mr view *)",
+      "Bash(glab api */jobs/*)",
+      "Bash(glab api */pipelines/*)",
+      "Bash(glab api */trace)",
       "Bash(grep *)",
       "Bash(head *)",
       "Bash(jobs)",
@@ -186,6 +185,8 @@
       "Bash(npx rollup *)",
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
+      "Bash($NVM_DIR/nvm.sh)",
+      "Bash(nvm use *)",
       "Bash(pre-commit run *)",
       "Bash(ps *)",
       "Bash(pytest /Users/sammefford/.claude/hooks/approve-allowlisted-chains/*)",
@@ -305,7 +306,57 @@
       "mcp__workfront-hub__planning_get_workspace",
       "mcp__workfront-hub__planning_search_records",
       "mcp__workfront-hub__planning_search_resources",
-      "mcp__workfront-hub__planning_search_users"
+      "mcp__workfront-hub__planning_search_users",
+      "Bash(/Users/sammefford/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/subagent-driven-development/scripts/sdd-workspace *)",
+      "Bash(bash -n wrappers/ao/run-ao-local.sh)",
+      "Bash(bash wrappers/ao/run-ao-local.sh *)",
+      "Bash(/Users/sammefford/.nvm/versions/node/v25.9.0/bin/npm config *)",
+      "Bash(printenv NPM_CONFIG_PREFIX)",
+      "mcp__claude_ai_Adobe_Workfront__workflow_read_workflow_docs",
+      "mcp__claude_ai_Adobe_Workfront__insights_find_id_by_name",
+      "mcp__fluffyjaws__jira_ticket_search",
+      "WebFetch(domain:gitlab.workfront.tech)",
+      "Bash(command -v glab jq)",
+      "Bash(glab auth *)",
+      "mcp__fluffyjaws__skyline_runbooks_search",
+      "Bash(git merge *)",
+      "mcp__claude_ai_Adobe_Workfront__planning_get_workspace_list",
+      "mcp__workfront-hub__workflow_read_workflow_docs",
+      "Skill(keybindings-help)",
+      "Skill(keybindings-help:*)",
+      "Bash(corepack enable *)",
+      "Bash(npx --yes yarn@1 -v)",
+      "Bash(command -v nvm)",
+      "mcp__workfront-hub__insights_find_id_by_name",
+      "mcp__workfront-eu__insights_find_id_by_name",
+      "mcp__workfront-eu__insights_read_docs",
+      "mcp__workfront-eu__insights_search_fields",
+      "mcp__workfront-eu__insights_find_workfront_data",
+      "mcp__workfront-eu__workflow_read_workflow_docs",
+      "Bash(scripts/run-mcp-smoke.sh)",
+      "Bash(scripts/stop-mcp-batch.sh)",
+      "Bash(git config *)",
+      "Bash(yarn --version)",
+      "Bash(nohup scripts/run-mcp-batch.sh --no-start-server --benchmark --harness-a ao --manifest cases/tiers/fast.txt)",
+      "Bash(ao --version)",
+      "Bash(glab api *)",
+      "Bash(RENZLER_SKIP_DATADOG_AGENT=1 npx jest*)",
+      "Bash(scripts/with-env.sh scripts/run-mcp-batch.sh *)",
+      "mcp__claude_ai_Slack__slack_read_thread",
+      "Bash(scripts/with-env.sh env *)",
+      "Bash(~/.claude/skills/change-logging/scripts/log-change.sh config *)",
+      "Bash(scripts/with-env.sh npm *)",
+      "Bash(command -v glab)",
+      "Bash(nohup ./scripts/run-mcp-batch.sh --harness-a ao --harness-b ao_without_context)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__wait_for",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_network_requests",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__fill",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__click",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__get_network_request",
+      "Bash(corepack --version)",
+      "Bash(npx --yes yarn build:harness)",
+      "mcp__workfront-hub__workflow_create_any_object"
     ],
     "deny": [
       "Bash(find * -delete *)",
@@ -313,21 +364,26 @@
       "Bash(find * -execdir *)",
       "Bash(find * -ok *)",
       "Bash(find * -okdir *)",
+      "Bash(cat *.env)",
+      "Bash(cat *.npmrc)",
       "Edit(*.env)",
-      "Edit(*.env.*)",
       "Edit(*/.env)",
       "Edit(.env)",
-      "Edit(.env.*)",
       "Read(*.env)",
-      "Read(*.env.*)",
       "Read(*/.env)",
       "Read(.env)",
-      "Read(.env.*)",
       "Write(*.env)",
-      "Write(*.env.*)",
       "Write(*/.env)",
       "Write(.env)",
-      "Write(.env.*)",
+      "Edit(*.npmrc)",
+      "Edit(*/.npmrc)",
+      "Edit(.npmrc)",
+      "Read(*.npmrc)",
+      "Read(*/.npmrc)",
+      "Read(.npmrc)",
+      "Write(*.npmrc)",
+      "Write(*/.npmrc)",
+      "Write(.npmrc)",
       "mcp__ms365__add-mail-attachment",
       "mcp__ms365__copy-mail-message",
       "mcp__ms365__create-draft-email",
@@ -373,7 +429,7 @@
       "/Users/sammefford/dev/smefford_ao/results/uc/baseline-approvals-write-clean"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-opus-4-8[1m]",
   "enableAllProjectMcpServers": true,
   "hooks": {
     "PreToolUse": [
@@ -384,6 +440,16 @@
             "type": "command",
             "command": "cmd=$(jq -r '.tool_input.command // empty'); if printf '%s' \"$cmd\" | grep -qE -- '-exec[[:space:]]+grep([[:space:]]|$)'; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\"}}'; fi",
             "if": "Bash(find *)"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/sammefford/.claude/hooks/deny-secret-file-read.sh",
+            "timeout": 5
           }
         ]
       },
@@ -408,11 +474,32 @@
             "statusMessage": "Checking chained command against allowlist"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          }
+        ]
       }
     ]
   },
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "slack@claude-plugins-official": true,
+    "sonarqube@claude-plugins-official": true,
+    "adobe-for-creativity@claude-plugins-official": true
   },
-  "effortLevel": "medium"
+  "effortLevel": "medium",
+  "tui": "fullscreen"
 }
