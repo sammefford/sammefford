@@ -12,6 +12,7 @@ Personal macOS config for Sam Mefford. Files mirror their home-directory paths u
 | `.claude/hooks.json` | `~/.claude/` | Claude Code lifecycle hooks (session-start, stop, notification → cmux) |
 | `.claude/skills/change-logging/` | `~/.claude/skills/change-logging/` | Global skill: log config changes (SKILL.md only; scripts live in `.cursor/`) |
 | `.cursor/skills/change-logging/` | `~/.cursor/skills/change-logging/` | Same skill with shell scripts (snapshot, log, mirror, run-and-log) |
+| `.claude/skills/{inbox,workfront,backlog,triage}/` | `~/.claude/skills/` | Work-triage skill set: `/triage` orchestrator + `/inbox`, `/workfront`, `/backlog` sub-skills (source only — `.claude/skills/.gitignore` excludes `reports/` and `*-user-id.txt`, which hold real colleague/Workfront data and personal IDs and must never be published) |
 | `.local/bin/claude-cmux-hook` | `~/.local/bin/` | Claude Code → cmux notification bridge |
 | `Library/Application Support/Cursor/User/keybindings.json` | `~/Library/Application Support/Cursor/User/` | Cursor keybindings |
 | `backlog.md` | `~/backlog.md` (symlink → repo) | Flat work-capture list, triaged via the `/backlog` skill. Unlike the copied dotfiles above, `~/backlog.md` is a **symlink** to this repo file so frequent appends are auto-tracked. |
