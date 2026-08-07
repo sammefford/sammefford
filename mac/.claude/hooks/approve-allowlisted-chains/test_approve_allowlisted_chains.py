@@ -131,6 +131,27 @@ def test_canonicalize_segment_only_touches_the_command_name():
     assert aac._canonicalize_segment("tail -n 5") == "tail -n 5"  # already bare -> unchanged
 
 
+# --- _canonicalize_segment: rtk-prefix canonicalization -----------------------
+def test_canonicalize_segment_strips_rtk_prefix():
+    assert aac._canonicalize_segment("rtk git status") == "git status"
+    assert aac._canonicalize_segment("rtk tail -n 5") == "tail -n 5"
+
+
+def test_canonicalize_segment_rtk_prefix_recurses_into_path_canonicalization():
+    assert aac._canonicalize_segment("rtk /usr/bin/tail -n 5") == "tail -n 5"
+
+
+def test_canonicalize_segment_bare_rtk_is_unchanged():
+    # No wrapped command to unwrap -- leave it alone rather than stripping to "".
+    assert aac._canonicalize_segment("rtk") == "rtk"
+
+
+def test_canonicalize_segment_rtk_only_matches_as_leading_word():
+    # "rtkill" or an argument that happens to start with "rtk" must not be mistaken
+    # for the wrapper prefix.
+    assert aac._canonicalize_segment("rtkill -9 1") == "rtkill -9 1"
+
+
 # --- _deny_matches: liberal ---------------------------------------------------
 def test_deny_midstring_wildcard_matches():
     assert aac._deny_matches("find . -maxdepth 1 -exec rm {} +", "find * -exec *")
@@ -383,6 +404,29 @@ def test_decide_canonicalized_form_still_hits_deny_rule():
     # The deny rule text ("find * -delete *") only matches the bare form; canonicalizing
     # must not let an absolute-path invocation dodge it.
     assert not aac.decide("echo hi && /bin/find . -delete", ALLOW, DENY, SAFE_DIRS)
+
+
+# --- decide(): rtk-prefix canonicalization ------------------------------------
+def test_decide_approves_lone_command_via_rtk_prefix():
+    # Single command, not a chain -- but stripping "rtk " is exactly what makes this
+    # match an allow rule CC's own matcher wouldn't have hit.
+    assert aac.decide("rtk git log --oneline -1", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_lone_rtk_command_whose_stripped_form_isnt_allowlisted():
+    assert not aac.decide("rtk git status", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_chain_mixing_bare_and_rtk_prefixed_segments():
+    assert aac.decide("echo hi && rtk git log --oneline -1", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rtk_prefix_recurses_into_path_canonicalization():
+    assert aac.decide("rtk /usr/bin/sort -u", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_bare_rtk_with_no_wrapped_command():
+    assert not aac.decide("rtk", ALLOW, DENY, SAFE_DIRS)
 
 
 # --- decide: mid-string wildcard rules + quoted arguments (the gh api scenario) ----
@@ -644,7 +688,7 @@ def test_inspect_refuses_two_levels_of_nesting_across_different_construct_types(
     assert aac._inspect("for x in a; do if true; then (echo hi); fi; done")[0] is None
 
 
-# --- VAR=$(cmd) assignment support -------------------------------------------
+# --- VAR=val / VAR=$(cmd) assignment support ---------------------------------
 def test_inspect_approves_assignment_whose_value_is_a_single_substitution():
     segments, top_level_count, had_compound, reason = aac._inspect(
         "r=$(git log --oneline -1) && echo hi"
@@ -657,8 +701,27 @@ def test_inspect_approves_assignment_whose_value_is_a_single_substitution():
     assert had_compound is False
 
 
-def test_inspect_refuses_assignment_with_plain_literal_value():
-    assert aac._inspect("x=bar && echo hi")[0] is None
+def test_inspect_approves_assignment_with_plain_literal_value():
+    segments, top_level_count, had_compound, reason = aac._inspect("x=bar && echo hi")
+    assert reason is None
+    assert segments == ["echo hi"]
+    assert top_level_count == 2
+    assert had_compound is False
+
+
+def test_inspect_refuses_assignment_with_parameter_expansion_value():
+    # $HOME is a parameter expansion, not a plain literal and not a single command
+    # substitution -- there's a runtime value here this hook can't inspect statically.
+    assert aac._inspect("WT=$HOME/x && echo hi")[0] is None
+
+
+def test_inspect_refuses_env_prefixed_command_even_though_literal_assignment_is_allowed():
+    # `FOO=bar echo hi` is one command (echo invoked with an env override), not a bare
+    # assignment statement followed by a command. The text this hook matches against
+    # allow rules is just the command's own words ("echo hi"), which never includes the
+    # "FOO=bar" prefix -- approving this would let an allowlisted command run under an
+    # attacker-chosen environment variable without that variable ever being checked.
+    assert aac._inspect("FOO=bar echo hi")[0] is None
 
 
 def test_inspect_refuses_assignment_mixing_literal_text_with_a_substitution():
@@ -701,8 +764,109 @@ def test_decide_rejects_assignment_chain_when_nested_command_isnt_allowlisted():
     assert not aac.decide("r=$(git status) && echo hi", ALLOW, DENY, SAFE_DIRS)
 
 
-def test_decide_rejects_assignment_with_literal_value_even_if_unrelated_chain_is_safe():
-    assert not aac.decide("x=bar && echo hi", ALLOW, DENY, SAFE_DIRS)
+def test_decide_approves_assignment_with_literal_value_when_rest_of_chain_is_safe():
+    assert aac.decide("x=bar && echo hi", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_approves_literal_assignment_whose_value_flows_into_a_later_segment():
+    # The motivating shape: WT=<path> && ls "$WT/whatever" -- ls matches its allow rule
+    # as written, since $WT is unexpanded text at parse time.
+    assert aac.decide('WT=/Users/sam/dev/x && ls "$WT/.env"', ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_literal_assignment_when_later_segment_isnt_allowlisted():
+    assert not aac.decide("WT=/Users/sam/dev/x && git status", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_still_rejects_env_prefixed_command():
+    assert not aac.decide("FOO=bar echo hi && echo done", ALLOW, DENY, SAFE_DIRS)
+
+
+def test_inspect_approves_export_with_plain_literal_value():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "export WT=/Users/sam/dev/x && echo hi"
+    )
+    assert reason is None
+    assert segments == ["echo hi"]
+    # like a bare assignment, `export` counts as a top-level segment on its own and is
+    # never added to `segments` -- no allow rule is needed for the "export ..." text.
+    assert top_level_count == 2
+    assert had_compound is False
+
+
+def test_inspect_approves_export_with_parameter_expansion_value():
+    # The motivating case: nvm-style PATH setup ahead of an rtk-wrapped command. Unlike a
+    # bare `VAR=$HOME/x` assignment, `export`'s value may be built from parameter
+    # expansions mixed with literal text -- $HOME/$PATH only ever substitute existing
+    # shell/environment state, they can't execute code.
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        'export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH" && echo hi'
+    )
+    assert reason is None
+    assert segments == ["echo hi"]
+    assert top_level_count == 2
+
+
+def test_inspect_approves_export_whose_value_is_a_single_substitution():
+    segments, top_level_count, had_compound, reason = aac._inspect(
+        "export r=$(git log --oneline -1) && echo hi"
+    )
+    assert reason is None
+    assert segments == ["git log --oneline -1", "echo hi"]
+    assert top_level_count == 2
+
+
+def test_inspect_refuses_export_mixing_parameter_expansion_with_a_substitution():
+    # A value can't mix a parameter expansion with a command substitution -- only a
+    # value that is wholly literal, wholly parameter expansions, or wholly a single
+    # substitution is accepted; a mix would let an un-vetted substitution ride alongside
+    # $PATH without ever being checked.
+    assert aac._inspect("export PATH=$HOME/bin:$(evil) && echo hi")[0] is None
+
+
+def test_decide_rejects_export_with_multiple_assignments_one_substituting_unallowlisted_command():
+    # BAR=$(evil) is structurally safe (a single substitution), so _inspect lets it
+    # through -- but decide() must still catch that "evil" itself isn't allowlisted.
+    assert not aac.decide(
+        "export FOO=bar BAR=$(evil) && echo hi", ALLOW, DENY, SAFE_DIRS
+    )
+
+
+def test_inspect_still_refuses_bare_assignment_with_parameter_expansion():
+    # export is deliberately wider than a bare VAR=value assignment (see
+    # `_is_safe_export_value`'s docstring) -- this documents that the narrower,
+    # already-established bare-assignment behavior is unchanged by the export support.
+    assert aac._inspect("WT=$HOME/x && echo hi")[0] is None
+
+
+def test_decide_approves_export_with_parameter_expansion_value():
+    assert aac.decide(
+        'export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH" && echo hi',
+        ALLOW,
+        DENY,
+        SAFE_DIRS,
+    )
+
+
+def test_decide_approves_the_motivating_rtk_export_chain():
+    cmd = (
+        'export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH"; '
+        'rtk grep -rn "run-wf-judge" wrappers/wf-judge/*.test.ts 2>/dev/null; '
+        "rtk ls wrappers/wf-judge/"
+    )
+    assert aac.decide(cmd, ALLOW, DENY, SAFE_DIRS)
+
+
+def test_decide_rejects_export_chain_when_nested_substitution_isnt_allowlisted():
+    assert not aac.decide(
+        "export r=$(git status) && echo hi", ALLOW, DENY, SAFE_DIRS
+    )
+
+
+def test_decide_rejects_export_chain_when_later_segment_isnt_allowlisted():
+    assert not aac.decide(
+        'export PATH=$HOME/bin && git status', ALLOW, DENY, SAFE_DIRS
+    )
 
 
 def test_decide_approves_capture_and_echo_for_loop():
