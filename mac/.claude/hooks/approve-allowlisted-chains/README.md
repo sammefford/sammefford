@@ -25,6 +25,13 @@ even for a single command, not just a chain. Rather than adding a parallel
 this hook canonicalizes the command name (only the command name, never arguments) back to
 its bare form before matching, so one allow rule covers every absolute-path spelling.
 
+It also closes a third gap of the same shape: `rtk` (see `~/.claude/RTK.md`) is a
+transparent proxy that re-runs its argument as-is, filtering the output — `rtk git status`
+*is* `git status` as far as any allow rule should care, but it's a different literal string
+to CC's matcher. This hook strips a leading `rtk ` word before matching, so an existing
+`git status *` rule also covers `rtk git status`, without a parallel `Bash(rtk *)` rule
+that would blanket-approve every `rtk`-wrapped command regardless of what it wraps.
+
 ## What it does
 
 On every Bash tool call it:
@@ -34,15 +41,17 @@ On every Bash tool call it:
    than a plain chain of simple commands, or a standalone compound command (see *Safety model*).
 3. Splits the chain (or compound body) into segments. For each segment, canonicalizes just
    the leading command word if it's an absolute path into a known bin directory
-   (`/usr/bin/tail` -> `tail`), and checks both the raw and canonicalized forms against
-   your `Bash(...)` allow/deny rules.
+   (`/usr/bin/tail` -> `tail`) and/or strips a leading `rtk ` wrapper word (`rtk git status`
+   -> `git status`, recursing so `rtk /usr/bin/tail` also loses its path), and checks both
+   the raw and canonicalized forms against your `Bash(...)` allow/deny rules.
 4. Emits `permissionDecision: "allow"` only if **every** segment (including any nested
    inside a command/process substitution or compound body) matches an allow rule and **none**
    matches a deny rule, **and** either there are **≥2 top-level segments** (a chain), **or**
    there's exactly one top-level segment that is a compound command (for/if/while/subshell/
    group), **or** there's exactly one top-level segment whose canonicalization is what made
-   it match (a single absolute-path command). A single ordinary command that already matches
-   in its raw form is left to Claude Code's own native matching, unchanged from before.
+   it match (a single absolute-path or `rtk`-prefixed command). A single ordinary command
+   that already matches in its raw form is left to Claude Code's own native matching,
+   unchanged from before.
 5. Otherwise prints nothing and exits 0, so Claude Code prompts as usual.
 
 It **never** emits `deny`.
@@ -56,9 +65,10 @@ would not. The design makes that impossible instead of trying to replicate CC ex
   we agree with the shell that actually runs the command. `for`/`if`/`while` and
   subshell/group compound commands are inspected rather than refused outright (see "Compound
   command support" section below); `case` statements, function definitions, and heredocs are
-  refused outright anywhere. An inline `VAR=val` assignment is refused unless `val` is wholly
-  a single command/process substitution (`VAR=$(cmd)`) — see "Variable assignment support"
-  below for exactly what that lets through and the risk it knowingly reopens.
+  refused outright anywhere. An inline `VAR=val` assignment is accepted when `val` is wholly
+  literal (no expansion at all) or wholly a single command/process substitution (`VAR=$(cmd)`)
+  — see "Variable assignment support" below for exactly what that lets through and the risk it
+  knowingly reopens.
 - **Real-file redirects are allowed only in a narrow, literal, resolvable case.** A
   redirect is approved if it's an fd-dup (`2>&1`), `/dev/null`, *or* an output redirect
   (`>`/`>>`) where the target is: (a) **literal text** — no `$VAR`, `$(...)`, or backticks,
@@ -107,6 +117,13 @@ would not. The design makes that impossible instead of trying to replicate CC ex
   or manufacture a false wildcard match. Every segment is checked against allow/deny rules
   in *both* its raw and canonicalized form, so canonicalizing can only ever give a deny rule
   an extra chance to match — never a way to dodge one.
+- **Narrow `rtk`-prefix canonicalization.** `_canonicalize_segment` strips only an exact,
+  leading `rtk ` word — never a mid-string occurrence (`rtkill` is untouched), and never
+  anything after it — then re-canonicalizes the remainder, so an `rtk`-wrapped absolute-path
+  command still gets its path stripped too. It reveals the *bare* command for matching; it
+  doesn't add a `Bash(rtk *)`-style rule, so an `rtk`-wrapped command is only ever approved
+  when the command it wraps already would be, checked in both raw and canonicalized form
+  exactly like path canonicalization.
 - **Fail-safe.** Any parse error, unknown construct, missing dependency, or unexpected input
   → print nothing, exit 0 → normal prompt.
 
@@ -148,33 +165,43 @@ shapes at all.
 - **`until`/`select`** — out of scope; refused the same way any unrecognized construct is.
 - **Functions and heredocs** — refused anywhere, including inside a compound body, same as
   at the top level.
-- **Inline `VAR=val` assignments** — refused *unless* `val` is wholly a single command/process
-  substitution; see "Variable assignment support" below.
+- **Inline `VAR=val` assignments** — accepted when `val` is wholly literal or wholly a single
+  command/process substitution; refused otherwise. See "Variable assignment support" below.
 
 See `docs/2026-07-21-compound-commands-design.md` for the full design rationale.
 
 ## Variable assignment support
 
-`VAR=$(cmd)` (or `` VAR=`cmd` ``, or `VAR=<(cmd)`) is inspected rather than refused outright,
-*only* when the entire value is one command/process substitution with no literal text mixed
-in before or after it — the same all-or-nothing gate a `for` loop's iteration source already
-uses. The substitution's inner command is then checked like any other segment: it must match
-an allow rule and not match a deny rule, same as everywhere else in this hook. The assignment
-itself counts as a top-level segment (like a plain command), so `r=$(git log -1) && echo "$r"`
-can qualify as a chain on its own, not just inside a loop body.
+An inline `VAR=value` assignment is inspected rather than refused outright in two shapes:
 
-- **Approved:** `r=$(git log --oneline -1) && echo "$r"` — the nested `git log` is checked;
-  if it's allowlisted, the whole chain is.
-- **Refused — no nested command to vet:** `x=bar && echo hi`. A plain literal has nothing for
-  this hook to check, so it's left to a normal prompt, same as before this feature existed.
+1. **Purely literal**, with no expansion at all — `WT=/Users/sam/dev/x`. Nothing here needs
+   vetting (it's inert text), so the assignment counts as an approvable top-level segment on
+   its own, same as a plain command.
+2. **Wholly a single command/process substitution** — `VAR=$(cmd)` (or `` VAR=`cmd` ``, or
+   `VAR=<(cmd)`) — with no literal text mixed in before or after it, the same all-or-nothing
+   gate a `for` loop's iteration source already uses. The substitution's inner command is then
+   checked like any other segment: it must match an allow rule and not match a deny rule, same
+   as everywhere else in this hook.
+
+Either shape counts as a top-level segment (like a plain command), so `WT=/abs/path && ls
+"$WT"` or `r=$(git log -1) && echo "$r"` can each qualify as a chain on their own, not just
+inside a loop body.
+
+- **Approved — literal:** `WT=/Users/sam/dev/x && ls "$WT/.env"` — the assignment is purely
+  literal, and `ls "$WT/.env"` matches the `ls *` allow rule as written (unexpanded).
+- **Approved — substitution:** `r=$(git log --oneline -1) && echo "$r"` — the nested `git log`
+  is checked; if it's allowlisted, the whole chain is.
+- **Refused — any other expansion:** `WT=$HOME/x && echo hi`. `$HOME` is a parameter
+  expansion, not a plain literal and not a command substitution, so there's a runtime value
+  this hook can't inspect statically — left to a normal prompt.
 - **Refused — literal text riding along with the substitution:** `r=a$(git log -1)` or
   `r=$(git log -1)b`. Only the inner `git log` would be checked; the literal `a`/`b` folded
   into the same value would never be vetted at all, so the whole thing refuses.
 
-**Accepted risk, on purpose.** This reopens a real gap the "every segment matches an
+**Accepted risk, on purpose.** Both shapes reopen a real gap the "every segment matches an
 allow rule" model doesn't otherwise have: the captured value can flow into a *later*,
 unrelated statement this hook has no way to tie back to "was produced by an approved
-command." Two concrete shapes to be aware of if you lean on this:
+command." Concrete shapes to be aware of if you lean on this:
 - **Composition producing an effect no single rule was meant to permit** — e.g.
   `secret=$(gh api repos/*/contents/.env --jq .content | base64 -d)` followed by
   `echo "$secret"`: both `gh api repos/*/contents/*` and `base64 *` may be individually
@@ -183,12 +210,46 @@ command." Two concrete shapes to be aware of if you lean on this:
 - **Injection via untrusted captured data reinterpolated unquoted** — e.g.
   `title=$(gh pr view 42 --json title --jq .title)` followed by `git log --oneline $title`:
   a PR title is attacker-controlled text, and an unquoted later expansion lets it inject new
-  arguments/commands into a statement this hook never re-checks.
+  arguments/commands into a statement this hook never re-checks. The literal case has a
+  narrower version of the same risk — a fixed string assigned earlier in the same command
+  reinterpolated unquoted downstream — but there's no attacker-controlled data involved, since
+  the literal came from the command Claude itself proposed running.
 
 This was a deliberate, informed tradeoff (not an oversight) — accepted after weighing those
-scenarios against the friction of prompting on every `VAR=$(cmd)` chain. If that tradeoff ever
-needs revisiting, the gate to tighten is `visitassignment`/`_is_single_substitution` in
+scenarios against the friction of prompting on every `VAR=val`/`VAR=$(cmd)` chain. If that
+tradeoff ever needs revisiting, the gate to tighten is `visitassignment` in
 `approve-allowlisted-chains.py`.
+
+### `export VAR=val` is wider than a bare assignment
+
+bashlex parses `export VAR=val` as an ordinary command (`export` plus a word), not the
+`assignment` node a bare `VAR=val` gets. Without special-casing it, every distinct
+`export` invocation would need its own literal/wildcard `Bash(export ...)` allow rule for
+its exact text — in practice this blocks common shell setup like an nvm-style
+`export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH"` ahead of a chain of
+otherwise-allowlisted commands, since `$HOME`/`$PATH` make the text different every time
+and no single allow rule can cover it.
+
+`export VAR=val [VAR2=val2 ...]` is instead checked the same way a bare assignment's
+value is checked — plus tolerance for parameter expansions (`$HOME`, `$PATH`, `$USER`,
+etc.) mixed with literal text, e.g. `$HOME/.nvm/bin:$PATH`. This is deliberately wider
+than bare-assignment support (which still refuses `WT=$HOME/x`): `export` is the actual
+shell operation for "set an environment variable" this hook means to cover, and parameter
+expansion only ever substitutes shell/environment state that already exists — it can't
+execute code or introduce new content, so it carries the same class of risk already
+accepted for the purely-literal case above, not the "unknown runtime value" risk a
+command substitution mixed with literal text would carry (which is still refused for
+`export` too — a value can't mix a parameter expansion with a command substitution,
+only be wholly one or the other or wholly literal).
+
+- **Approved — parameter expansion:** `export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH"; rtk grep ...; rtk ls ...`
+  — the export's value is accepted, then each `rtk`-wrapped segment is checked as usual.
+- **Refused — mixed parameter expansion and substitution:** `export PATH=$HOME/bin:$(evil)`
+  — only a wholly-literal, wholly-parameter-expansion, or wholly-single-substitution value
+  is accepted; mixing would let an un-vetted substitution ride alongside `$PATH` unchecked.
+
+If this tradeoff ever needs revisiting, the gate to tighten is the `export`-handling
+branch of `visitcommand` (and `_is_safe_export_value`) in `approve-allowlisted-chains.py`.
 
 ## How it's wired
 
