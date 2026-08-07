@@ -17,6 +17,27 @@ be allowlisted once. This also lets a single (non-chain) command through when, a
 when, canonicalizing its absolute path is the reason it now matches — an ordinary bare
 single command is still left to Claude Code's native matching, unchanged from before.
 
+It also closes a third gap of the same shape: `rtk` (see `RTK.md`) is a transparent proxy
+that re-runs its argument as-is, filtering output — `rtk git status` and `git status` are
+the same command as far as any allow rule is concerned, but CC's matcher sees an unrelated
+literal string and prompts. This hook strips a leading `rtk ` word before matching (and
+recurses, so an `rtk`-wrapped absolute-path command still gets path-canonicalized too),
+subject to the exact same "raw and canonicalized form both checked against allow/deny"
+rule as path canonicalization — so it can only ever line an `rtk`-prefixed command up with
+a rule a human already wrote for the bare command, never approve something new.
+
+It also closes a fourth gap: bashlex parses `export VAR=val` as an ordinary command
+(`export` plus a word), not the `assignment` node a bare `VAR=val` gets — so without
+special-casing it, every distinct `export` invocation would need its own literal/wildcard
+`Bash(export ...)` allow rule, e.g. an nvm-style `export PATH="$HOME/.nvm/.../bin:$PATH"`
+ahead of a chain of otherwise-allowlisted commands. This hook recognizes `export
+VAR=val [VAR2=val2 ...]` as an env-var-setting statement and checks each value the same
+way a bare assignment's value is checked, plus tolerance for parameter expansions
+(`$HOME`, `$PATH`, etc.) mixed with literal text — wider than bare-assignment support,
+since `export` is the actual shell operation for "set an environment variable" this hook
+means to cover, and parameter expansion only ever substitutes existing shell/environment
+state, never executes code. See "Variable assignment support" in README.md.
+
 Safety model — the only dangerous divergence from Claude Code is *over*-approval, so the
 design makes that impossible rather than trying to replicate CC exactly:
 
@@ -25,9 +46,11 @@ design makes that impossible rather than trying to replicate CC exactly:
   compounds are inspected (see "Compound command support" in README.md) rather than refused
   outright; `case` remains unparseable by the vendored bashlex, and a function or a heredoc
   is still refused outright anywhere, including inside a compound body. An inline `VAR=val`
-  assignment is refused unless `val` is wholly a single command/process substitution
-  (`VAR=$(cmd)`) with no literal text mixed in — see "Variable assignment support" in
-  README.md for what that lets through and the risk it knowingly reopens.
+  assignment is accepted when `val` is wholly literal (no expansion at all) or wholly a
+  single command/process substitution (`VAR=$(cmd)`); anything else — literal text mixed
+  with a substitution, or any other expansion like `$HOME` — is refused outright. See
+  "Variable assignment support" in README.md for what that lets through and the risk it
+  knowingly reopens.
 * A redirect is allowed only as an fd dup (`2>&1`), `/dev/null`, an
   output redirect (`>`/`>>`) to a literal (no `$VAR`/`$(...)`) absolute path that both ends
   in a safe extension (`.log`, `.out`, `.err`, `.tmp`, `.diff`, `.json`) and falls under a
@@ -61,6 +84,13 @@ design makes that impossible rather than trying to replicate CC exactly:
   and canonicalized forms of every segment are checked against *both* allow and deny rules,
   so canonicalizing can only ever add an extra chance to match a deny rule too — never a
   way to dodge one.
+* `rtk`-prefix canonicalization strips only a leading, exact `rtk ` word from a segment
+  (never from the middle, and never touching anything after it), then re-canonicalizes
+  the remainder the same way any other segment is — so `rtk /usr/bin/tail -f x` still gets
+  its path stripped too. Same both-forms-checked-against-both-rule-lists treatment as path
+  canonicalization, so this can only line an `rtk`-wrapped command up with an allow rule
+  already written for its bare form — never approve something the bare form wouldn't also
+  match.
 
 On any parse failure, unsafe construct, or unexpected input it prints nothing and exits
 0, so Claude Code's normal prompting takes over. It never emits `deny`.
@@ -240,6 +270,28 @@ def _is_single_substitution(value_word: str, parts) -> bool:
     )
 
 
+_EXPORT_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _is_safe_export_value(value: str, parts) -> bool:
+    """True iff `value` (the text after `NAME=` in an `export NAME=value` argument) is
+    safe to accept without a runtime value to inspect: purely literal (`parts` empty),
+    wholly a single command/process substitution (same gate `visitassignment` uses via
+    `_is_single_substitution`), or composed entirely of parameter expansions (`$VAR`/
+    `${VAR}`, bashlex kind `"parameter"`) mixed with literal text -- e.g.
+    `$HOME/.nvm/bin:$PATH`. Parameter expansion only ever substitutes shell/environment
+    state that already exists; it can't execute code or introduce content this hook
+    hasn't already accepted elsewhere, so mixing it with literal text carries the same
+    class of risk already accepted for the purely-literal case (see "Variable assignment
+    support" in README.md) -- unlike a command substitution mixed with literal text,
+    which still refuses via `_is_single_substitution`."""
+    if not parts:
+        return True
+    if _is_single_substitution(value, parts):
+        return True
+    return all(p.kind == "parameter" for p in parts)
+
+
 def _canonicalize_command_word(word: str) -> str:
     """`/usr/bin/tail` -> `tail`. Anything not under a `_KNOWN_BIN_DIRS` entry, including
     an unrecognized absolute path, is returned unchanged."""
@@ -250,8 +302,15 @@ def _canonicalize_command_word(word: str) -> str:
 
 def _canonicalize_segment(segment: str) -> str:
     """Canonicalize only the leading command word of a segment; everything after the
-    first space (the arguments) is passed through untouched."""
+    first space (the arguments) is passed through untouched -- except a leading `rtk `
+    word, which is stripped entirely (not just canonicalized) since `rtk cmd args` runs
+    `cmd args` verbatim (see RTK.md): the whole remainder becomes the segment to match,
+    recursively re-canonicalized so `rtk /usr/bin/tail -f x` still gets its path stripped
+    too. `rtk` with no following word (bare `rtk`, or `rtk` as the very last token) is left
+    alone -- there is no wrapped command to unwrap."""
     head, sep, rest = segment.partition(" ")
+    if head == "rtk" and rest:
+        return _canonicalize_segment(rest)
     return _canonicalize_command_word(head) + sep + rest
 
 
@@ -421,40 +480,47 @@ if bashlex is not None:
             return False
 
         def visitassignment(self, n, word) -> bool | None:
-            """`VAR=value`. Refused outright unless `value` is wholly a single command
-            or process substitution (`VAR=$(cmd)`, `` VAR=`cmd` ``, `VAR=<(cmd)`) --
-            the same single-substitution gate `visitfor` uses for a for-loop's
-            iteration source (see `_is_single_substitution`). A plain literal value, or
-            one mixing literal text with a substitution (`VAR=prefix$(cmd)`), still
-            refuses outright: only the inner command is ever checked against
-            allow/deny, so literal text folded into the same value would never be
-            vetted at all, and a plain literal has no nested command to vet in the
-            first place.
+            """`VAR=value`. Accepted in two shapes: a purely literal value with no
+            expansion at all (`n.parts` empty -- `VAR=/abs/path`, no `$HOME`/`$(...)`/
+            etc. folded in), or a value that is wholly a single command/process
+            substitution (`VAR=$(cmd)`, `` VAR=`cmd` ``, `VAR=<(cmd)`) -- the same
+            single-substitution gate `visitfor` uses for a for-loop's iteration source
+            (see `_is_single_substitution`). Anything mixing literal text with a
+            substitution (`VAR=prefix$(cmd)`) still refuses outright: only the inner
+            command is ever checked against allow/deny, so literal text folded into the
+            same value would never be vetted at all. Same for a value containing any
+            other expansion (`VAR=$HOME/x`, `VAR=$1`) -- `n.parts` non-empty but not a
+            single substitution -- since this hook has no runtime value to inspect and
+            can't tell what that expansion will actually produce.
 
-            When accepted, the substitution is left to the base class's own recursion
-            (the same path a command word's nested substitution already takes) and this
-            assignment counts as a top-level segment in its own right -- mirroring
-            `visitcommand`'s own gating -- so `VAR=$(cmd) && echo "$VAR"` can qualify as
-            a chain outside a loop too, not just inside one.
+            When accepted, the substitution (if any) is left to the base class's own
+            recursion (the same path a command word's nested substitution already
+            takes) and this assignment counts as a top-level segment in its own right --
+            mirroring `visitcommand`'s own gating -- so `VAR=$(cmd) && echo "$VAR"` or
+            `WT=/abs/path && ls "$WT"` can each qualify as a chain outside a loop too,
+            not just inside one.
 
-            Accepting this reopens a real gap the chain-of-approved-commands model
-            doesn't otherwise have: the captured value can flow into a *later*,
+            Accepting either shape reopens a real gap the chain-of-approved-commands
+            model doesn't otherwise have: the captured value can flow into a *later*,
             unrelated statement (e.g. an unquoted `echo $VAR` reinterpolating it as new
             words, or a decoded secret handed to `echo`) that this hook has no way to
             tie back to "was produced by an approved command." That risk was discussed
-            and accepted deliberately (see docs/) rather than overlooked."""
+            and accepted deliberately for `VAR=$(cmd)` (see docs/); the literal case
+            carries a narrower version of the same risk (a fixed string reinterpolated
+            unquoted downstream) and was extended deliberately too, rather than
+            overlooked."""
             if self.reason is not None:
                 return False
             value = word.partition("=")[2]
-            if not _is_single_substitution(value, n.parts):
+            if n.parts and not _is_single_substitution(value, n.parts):
                 self._refuse(
-                    "inline assignment whose value is not wholly a single command "
-                    "substitution (VAR=val or VAR=partial$(cmd)text)"
+                    "inline assignment whose value is not wholly literal or a single "
+                    "command substitution (VAR=val, VAR=$(cmd), or VAR=partial$(cmd)text)"
                 )
                 return False
             if self._subst_depth == 0 and self._compound_depth == 0:
                 self.top_level_commands += 1
-            return None  # let the base class recurse into the substitution
+            return None  # let the base class recurse into any substitution
 
         def visitredirect(self, n, input, type, output, heredoc) -> None:
             if isinstance(output, int):
@@ -478,8 +544,55 @@ if bashlex is not None:
                 "absolute path under a trusted directory, are allowed)"
             )
 
-        def visitcommand(self, n, parts) -> None:
+        def visitcommand(self, n, parts) -> bool | None:
+            """`export VAR=val [VAR2=val2 ...]` is recognized as an env-var-setting
+            statement -- bashlex parses `export` as an ordinary command word, not an
+            `assignment` node (unlike a bare `VAR=val`), so without this special case it
+            would need a literal/wildcard `Bash(export ...)` allow rule for its exact
+            text like any other command. Instead each `NAME=value` argument is checked
+            with `_is_safe_export_value`, the same acceptance rule `visitassignment` uses
+            plus tolerance for parameter expansions (see that function's docstring) --
+            deliberately wider than bare-assignment support, since `export` is the actual
+            shell operation for "set an environment variable" this hook means to cover.
+            Accepted the same way an assignment is: it counts as a top-level segment on
+            its own, is never added to `self.commands` (no allow rule needed for the
+            `export` text itself), and returns None so the base class still recurses into
+            any nested substitution."""
+            if (
+                len(parts) >= 2
+                and parts[0].kind == "word"
+                and parts[0].word == "export"
+                and not parts[0].parts
+                and all(
+                    p.kind == "word" and _EXPORT_ASSIGNMENT_RE.match(p.word)
+                    for p in parts[1:]
+                )
+            ):
+                for p in parts[1:]:
+                    value = p.word.partition("=")[2]
+                    if p.parts and not _is_safe_export_value(value, p.parts):
+                        self._refuse(
+                            "export assignment whose value is not wholly literal, a "
+                            "single command substitution, or parameter expansions "
+                            "($VAR/${VAR})"
+                        )
+                        return False
+                if self._subst_depth == 0 and self._compound_depth == 0:
+                    self.top_level_commands += 1
+                return None  # let the base class recurse into any nested substitution
             words = [p.word for p in parts if p.kind == "word"]
+            if words and any(p.kind == "assignment" for p in parts):
+                # `FOO=bar cmd args` -- an env-var prefix attached to a real command, not
+                # a bare `VAR=val` statement. Refused outright even though visitassignment
+                # now accepts literal values: the text this hook matches against allow
+                # rules is just the command's own words (see `words` above), which never
+                # includes the prefix, so approving this would let an allowlisted command
+                # run under an attacker-chosen environment variable (e.g. LD_PRELOAD,
+                # GIT_SSH_COMMAND) without that variable ever being checked.
+                self._refuse(
+                    "environment-variable-prefixed command (VAR=val cmd) is not supported"
+                )
+                return False
             if words:
                 self.commands.append(" ".join(words))
                 if self._subst_depth == 0 and self._compound_depth == 0:
@@ -527,7 +640,7 @@ def decide(
     items, a single top-level item that is a compound command (for/if/while/subshell/
     group -- Claude Code's native matcher never handles these, chained or alone), or a
     single top-level plain command whose only obstacle was an absolute path into a known
-    bin directory (see `_canonicalize_segment`) -- and, in every case, every underlying
+    bin directory or a leading `rtk ` wrapper (see `_canonicalize_segment`) -- and, in every case, every underlying
     command (including any nested inside a substitution or a compound body, checked in
     both its raw and canonicalized form) matches an allow rule while none matches a deny
     rule.
@@ -542,12 +655,12 @@ def decide(
         return False
     is_chain = top_level_count >= 2
     is_lone_compound = top_level_count == 1 and had_compound
-    is_lone_path_command = (
+    is_lone_canonicalized_command = (
         top_level_count == 1
         and not had_compound
         and _canonicalize_segment(segments[0]) != segments[0]
     )
-    if not (is_chain or is_lone_compound or is_lone_path_command):
+    if not (is_chain or is_lone_compound or is_lone_canonicalized_command):
         return False
     for segment in segments:
         canon = _canonicalize_segment(segment)
@@ -597,12 +710,12 @@ def _check() -> int:
         print(f"refused: {reason}")
         return 0
     is_lone_compound = top_level_count == 1 and had_compound
-    is_lone_path_command = (
+    is_lone_canonicalized_command = (
         top_level_count == 1
         and not had_compound
         and _canonicalize_segment(segments[0]) != segments[0]
     )
-    if top_level_count < 2 and not is_lone_path_command and not is_lone_compound:
+    if top_level_count < 2 and not is_lone_canonicalized_command and not is_lone_compound:
         print(f"deferred: not a chain ({top_level_count} top-level segment)")
         return 0
     for segment in segments:
@@ -669,6 +782,13 @@ def _selftest() -> int:
         ("echo hi | /usr/bin/sort -u", True),  # chain mixing a bare and an absolute-path segment
         ("echo hi && /bin/find . -delete", False),  # canonical form must still hit the deny rule
         ("echo hi && rm -rf ~", False),  # rm not allowlisted
+        ("rtk git log --oneline -1", True),  # lone command, but rtk-prefix strips to an allow rule
+        ("rtk git status", False),  # rtk-stripped form still isn't allowlisted
+        ("rtk /usr/bin/sort -u", True),  # rtk-prefix strip recurses into path canonicalization
+        ("rtk", False),  # bare rtk, no wrapped command to unwrap -- not a chain either
+        ("echo hi && rtk git log --oneline -1", True),  # chain mixing a bare and an rtk-wrapped segment
+        ("rtk git log --oneline -1 && rtk git status", False),  # one rtk-wrapped segment still unallowlisted
+        ("rtk rm -rf ~", False),  # rtk-stripped form hits no allow rule (nothing to canonicalize to)
         ("echo $(whoami) && echo hi", False),  # command substitution, but whoami isn't allowlisted
         ("echo `whoami` && echo hi", False),  # same, via backticks
         (
@@ -694,7 +814,19 @@ def _selftest() -> int:
         ("cd x && (echo hi)", True),  # subshell grouping - now approvable
         ("for d in a b; do echo $d; done", True),  # for loop with literal word list - now approvable
         ("FOO=bar git log --oneline && echo hi", False),  # env-prefixed command, not a bare assignment
-        ("x=bar && echo hi", False),  # literal assignment value, no nested command to vet
+        ("x=bar && echo hi", True),  # plain literal assignment value - now approvable
+        (
+            'WT=/Users/sam/dev/x && ls "$WT/.env"',
+            True,
+        ),  # literal assignment whose value flows into a later allowlisted segment
+        (
+            "WT=/Users/sam/dev/x && git status",
+            False,
+        ),  # literal assignment, but git status isn't allowlisted
+        (
+            "WT=$HOME/x && echo hi",
+            False,
+        ),  # value has a parameter expansion, not purely literal - still refused
         (
             "r=$(git log --oneline -1) && echo hi",
             True,
@@ -703,6 +835,31 @@ def _selftest() -> int:
             "r=$(git status) && echo hi",
             False,
         ),  # VAR=$(cmd) but git status isn't allowlisted
+        (
+            'export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH" && echo hi',
+            True,
+        ),  # export is wider than a bare assignment: parameter expansions are safe
+        (
+            "export WT=/Users/sam/dev/x && echo hi",
+            True,
+        ),  # export with a purely literal value
+        (
+            "export r=$(git log --oneline -1) && echo hi",
+            True,
+        ),  # export VAR=$(cmd): nested command still checked against allow rules
+        (
+            "export r=$(git status) && echo hi",
+            False,
+        ),  # export VAR=$(cmd) but git status isn't allowlisted
+        (
+            "export PATH=$HOME/bin:$(evil) && echo hi",
+            False,
+        ),  # mixing a parameter expansion with a substitution is still refused
+        (
+            'export PATH="$HOME/.nvm/versions/node/v18.18.2/bin:$PATH"; '
+            'rtk grep -rn x wrappers/wf-judge/*.test.ts 2>/dev/null; rtk ls wrappers/wf-judge/',
+            True,
+        ),  # the motivating chain: rtk-prefixed commands after an nvm-style PATH export
         (
             "r=a$(git log -1) && echo hi",
             False,
