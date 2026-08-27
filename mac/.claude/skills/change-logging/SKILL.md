@@ -25,7 +25,7 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.cursor/skills/change-logging/scripts/snapshot-config.sh ~/.zshrc "Short reason"
 ```
 
-4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the edited file there after making changes. Preserve the home-relative path under `mac/`:
+4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the edited file there after making changes. Preserve the home-relative path under `mac/`. Locally created skills (any new `SKILL.md` under `~/.claude/skills/` or `~/.cursor/skills/`, including their supporting files) always get mirrored, even if that skill has no prior mirror in `mac/` yet — don't skip mirroring just because it isn't already tracked there:
 
 ```text
 ~/.zshrc                                              -> /Users/sammefford/projects/sammefford/mac/.zshrc
