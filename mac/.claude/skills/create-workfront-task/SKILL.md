@@ -38,6 +38,13 @@ Two cases:
 
 If you're unsure which case applies, ask — don't guess a project name.
 
+### Special-case routing: Jessie He and Matt Newman
+
+Both work on the enterprise-context effort, but their current work happens outside renzler, so **never reference renzler** (repo paths, case names, harness internals) in tasks assigned to either of them.
+
+- **Jessie He** — tasks about improving the "tenant fixture" or the data inside the Workfront enterprise-context instance go to her. Route these to the **`[Enterprise Context] Business Context MCP — Workfront Planning`** project (`https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a2c62980002b3fdf3d9ed2ebb3e931d`) — that's where her enterprise-context tasks already live. Since she's working directly against that instance, link the task description to the actual object(s) in question using the `url` the enterprise-context MCP tools return on any object they touch (project, task, record, etc.) — don't hand-build these links, and don't substitute a renzler fixture path for them.
+- **Matt Newman** — tasks about improving prompt wording, case granularity, or per-task setup/teardown go to him, for now. Route these to the same **`[Enterprise Context] Business Context MCP — Workfront Planning`** project — that's where the bulk of his enterprise-context tasks already live. He's now working in the `mcp-eval-app` GitLab project, so instead of a renzler case path, link to the similar or likely-matching test case(s) there.
+
 ## 3. Apply the tag-prefix naming convention
 
 Real tasks on hub aren't named with plain descriptions alone — they're prefixed with one or more `[TAG]` blocks that categorize the work, then the plain description. Observed examples:
@@ -77,6 +84,8 @@ A description that meets that bar covers, in prose or short sections as fits the
 
 - **What / why** — the concrete problem or gap being addressed, and why it matters (the motivation, not just the symptom).
 - **Where** — specific file paths, functions, config keys, project/case names, URLs — whatever anchors the work to real artifacts. Pull these from the conversation; don't invent generic placeholders.
+
+If the conversation references a whole document (a handoff doc, a plan, a spec file) rather than a single file:line pointer, don't just paste its local disk path into the description — that path is meaningless to anyone (human or AI) reading the task outside this machine. Attach the file to the task instead, using an upload tool if one is available in-session (e.g. `approvals__upload_document_ui`), and note in the description that the file is attached. If no working upload tool is available in-session, say so explicitly and ask the user to attach it themselves rather than silently falling back to a bare local path.
 - **Current vs. desired behavior** — what happens today, and what should happen instead, concretely enough to tell when it's done.
 - **Suggested approach** — if the conversation already surfaced one (a pattern to copy, a file that already does this correctly), name it. Don't invent a design that wasn't discussed.
 - **Acceptance check** — how to know the task is done (a command to run, a case to re-test, a specific observable outcome).
@@ -120,13 +129,12 @@ Once the above is resolved, create with `workflow_create_any_object`:
     "projectID": "<resolved project ID>",
     "assignedToID": "<resolved user ID>",
     "workRequired": 4,
-    "status": "NEW",
-    "plannedCompletionDate": "2026-09-17T00:00:00Z"
+    "status": "NEW"
   }
 }
 ```
 
-`plannedCompletionDate` is optional — only include it if the user gave a due date or the surrounding project has an obvious one (e.g. matching sibling tasks' due dates in the same project). `description` is not optional — see step 5.
+`plannedCompletionDate` is optional — leave it out whenever possible. Only set it if the user explicitly gives a due date, or the surrounding project has an unambiguous one (e.g. matching sibling tasks' due dates in the same project). Don't infer one just because a project has some due dates on other tasks. If a date is otherwise required (e.g. the project template enforces one) and you have no real date to use, set it exactly one year out from today rather than guessing a nearer date. `description` is not optional — see step 5.
 
 After creating, confirm back to the user in plain language: the task name (with its tag), who it's assigned to, which project it landed in, the hour estimate, and a one-line recap of what the description covers — so they can catch a wrong guess before it sits in someone's list.
 
@@ -152,3 +160,6 @@ This only keeps the brief in sync for tasks created through this skill — it's 
 - Routing a task for someone else onto *your* personal tasks project instead of theirs.
 - Firing off a batch of tasks with inconsistent or guessed suffixes instead of confirming the stem + suffix list with the user first.
 - Skipping `workflow_read_workflow_docs` before setting a non-default status.
+- Pasting a local disk path (e.g. `/Users/name/...`) into the description as a stand-in for a referenced document — attach the file instead, or tell the user no upload tool is available so they can attach it themselves.
+- Referencing renzler (repo paths, case names, harness internals) in a task assigned to Jessie He or Matt Newman — their current work is outside renzler; link to the actual enterprise-context object (Jessie) or the matching `mcp-eval-app` GitLab test case (Matt) instead.
+- Setting `plannedCompletionDate` out of habit when nothing in the conversation calls for one — leave it unset by default, and fall back to one year out only if a date is unavoidable.
