@@ -1,0 +1,36 @@
+{
+  "name": "gz-inline-editor",
+  "displayName": "Gzip Inline Editor",
+  "description": "Edit .gz files in place inside VS Code, like vim's gzip.vim plugin. No temp files ever touch disk.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:gzInlineEditor.open"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gzInlineEditor.open",
+        "title": "Open Gzip File (Inline Edit)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "gzInlineEditor.open",
+          "when": "resourceExtname == .gz",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "gzInlineEditor.open",
+          "when": "resourceExtname == .gz"
+        }
+      ]
+    }
+  }
+}
