@@ -21,11 +21,6 @@ export PATH="/opt/homebrew/bin:/Library/Developer/CommandLineTools/usr/bin:$PATH
 # Github token for Horizon
 export GH_AUTH_TOKEN=`cat ~/.ssh/git_corp_adobe_com_horizon`
 
-# from `brew install nvm`
-export NVM_DIR="$HOME/.nvm"
-  [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
-  [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
-
 # from https://wiki.corp.adobe.com/spaces/AWF/pages/3202412793/AI+Dev+US+Onboarding
 #export PATH="/opt/homebrew/anaconda3/bin:$PATH"
 
@@ -38,3 +33,17 @@ unset zle_bracketed_paste
 export PATH="/usr/local/bin:$PATH"
 
 export PATH="$HOME/.npm-global/bin:$PATH"
+
+# from `brew install nvm` — sourced last so its Node/npm/npx shims win over
+# /usr/local/bin's older Node install
+export NVM_DIR="$HOME/.nvm"
+  [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"  # This loads nvm
+  [ -s "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm" ] && \. "/opt/homebrew/opt/nvm/etc/bash_completion.d/nvm"  # This loads nvm bash_completion
+
+export LLM_ROUTER_URL="https://llm-router-qa.qa.us-west-2.aws.wfk8s.com"
+export LLM_ROUTER_API_KEY=`cat ~/.ssh/llm_router_hackstudio_api_key`
+export VAULT_ADDR=https://vault-amer.adobe.net
+
+# krew (kubectl plugin manager, installed via Homebrew) + its plugin bin dir
+export PATH="/opt/homebrew/opt/krew/bin:$PATH"
+export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
