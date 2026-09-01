@@ -23,15 +23,15 @@ new "Last refreshed" timestamp) — this is a maintained map, not an
 append-only log. Only the "New candidates" section (see below) grows
 over time, and only until a human resolves each entry.
 
-## Tracked projects (as of 2026-08-24)
+## Tracked project Examples
 
 | Category | Project | ID |
 |---|---|---|
-| 1. Golden-thread cases | Run Eval Tests | `6a66359b0000042c21ac0f735a9237b8` |
-| 2. Enterprise-context tenant/data issues | Run Eval Tests (same project) | `6a66359b0000042c21ac0f735a9237b8` |
-| 3. Workfront skill for Claude | [E] Release Planning Solution Architect skill in Co-worker | `6a10e0d2000005ce1fce7e9cf8de7e70` |
-| 4. Workfront skill for ao/CX Coworker | Same project as #3 | `6a10e0d2000005ce1fce7e9cf8de7e70` |
-| 5. Fixing the ao-vs-claude eval suite | Run Eval Tests (same project as #1/#2) | `6a66359b0000042c21ac0f735a9237b8` |
+| 1. Enterprise-context benchmarking, Golden-thread cases | Run Eval Tests | `6a66359b0000042c21ac0f735a9237b8` |
+| 2. Workfront skill for Claude and ao/CX Coworker | [E] Release Planning Solution Architect skill in Co-worker | `6a10e0d2000005ce1fce7e9cf8de7e70` |
+| 3. Harness comparison | Renzler-Service | `6a8caaa80000700fdf61f747b995d4e4` |
+| 4. Enterprise-context benchmarking | Build the Testing Framework That Proves Enterprise Context Works (1) | `6a66361d00000421ba3d40a1dbcecc52` |
+| 5. Workfront MCP | 2026 Q3 Workfront API MCP Framework | `6a5fd75e000077a590cdda45b2e67bb0` |
 
 If the output file's own project IDs ever diverge from this table (a
 prior run added/removed a tracked project), treat the **file** as the
@@ -40,14 +40,12 @@ starting point, not an override.
 
 ## Steps
 
-1. **Refresh known projects.** For each unique project ID in the table
-   above (dedupe — "Run Eval Tests" backs 3 categories, the Planning
-   skill project backs 2):
+1. **Refresh known projects.** For each unique project ID:
    - Pull the current project object via `insights_find_workfront_data`
      or `context_get_project_context_first` (full fields, not just
      name/status).
-   - Pull 2-4 current example tasks assigned to AI-Dev-US / Sam Mefford
-     on that project (same query pattern `sync-tasks` uses: filter by
+   - Pull 2-4 current example tasks assigned to AI-Dev-US team or Sam Mefford
+     on that project (filter by
      assignee + status equatesWith NEW/INP, or by project ID if you
      need any-assignee examples for naming convention).
    - Overwrite that project's section in the output file with the

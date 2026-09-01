@@ -28,9 +28,28 @@ Named other person: resolve ID via `insights_find_id_by_name` (entity `user`) or
 ## 2. Project
 
 - **Named shared initiative**: resolve via `insights_find_id_by_name` (entity `project`).
-- **No named project**: use the *assignee's* auto-created personal project, `"<Full Name>'s Tasks"` — not the requester's.
+- **Invoked from a repo with a mapped project** (see Repo-aware routing below): use that
+  project — it beats the personal-project fallback.
+- **No named project and no repo mapping**: use the *assignee's* auto-created personal
+  project, `"<Full Name>'s Tasks"` — not the requester's.
 
 Ask rather than guess if unclear.
+
+### Repo-aware routing
+
+When the working directory is inside one of these repos, default to its mapped project and
+tag instead of the personal-tasks fallback — the goal is that where a task gets filed follows
+where the work actually is, not stale habit from a repo you've since moved off of:
+
+| Repo (cwd) | Project | Tag |
+|---|---|---|
+| `mcp-eval-app` | Run Eval Tests (`https://experience.adobe.com/#/@adobeinternalworkfront/so:hub-Hub/workfront/project/6a66359b0000042c21ac0f735a9237b8`) | `[mcp-eval-app]` |
+| `renzler-service` | Renzler-Service (`https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a8caaa80000700fdf61f747b995d4e4`) | `[renzler-service]` |
+
+Not in the table: fall back to the normal Project/Tag rules in this skill — ask if unclear
+rather than guessing a new mapping. If you're working in a repo that used to route to a
+different tag (e.g. old `[renzler]`/`[renzler-service]`-tagged tasks from before work moved to
+`mcp-eval-app`), don't carry that old tag forward — use the current repo's mapped tag.
 
 ### Jessie He / Matt Newman routing
 
@@ -132,6 +151,8 @@ Not a substitute for `/sync-tasks` (source of truth for completions/reassignment
 
 ## Common mistakes
 
+- Defaulting to the personal-tasks project/an old tag from habit when the cwd matches a repo
+  in the Repo-aware routing table — check that table before falling back to personal.
 - Plain-named task in an all-tagged project — check siblings first.
 - Empty or name-restating `description`.
 - Generic-boilerplate description instead of conversation specifics.
