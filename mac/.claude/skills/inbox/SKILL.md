@@ -34,17 +34,26 @@ reply-detection rule.
 2. Run the email and Slack searches per `references/detection-logic.md`.
 3. For each flagged thread, draft a 2–4 sentence suggested reply matching
    Sam's usual tone (terse, direct). Draft only — never send.
-4. Write the full report to
+4. Capture a real deep link for each flagged item — Slack's
+   `slack_read_thread` / `slack_search_public_and_private` results carry a
+   `permalink` field per message; `mcp__ms365__get-mail-message` /
+   `outlook_email_search` results carry a `webLink` field. Grab it while
+   you have the item open rather than re-fetching later. If a given
+   result genuinely has no such field, say so in the entry rather than
+   guessing or omitting the line silently.
+5. Write the full report to
    `~/.claude/skills/inbox/reports/YYYY-MM-DD.md` (today's date;
    **overwrite** if it already exists — reruns replace, they don't
    append), oldest-flagged-first, with `## Emails` and `## Slack` section
-   headers, each entry formatted:
+   headers, each entry formatted with the deep link on the heading line
+   (not a made-up anchor — an actual `permalink`/`webLink` URL, or "no
+   link available" if none exists):
    ```
-   - **[Slack/Email] From: <sender> — <subject/channel>** (age: 3d)
+   - **[Slack/Email] From: <sender> — <subject/channel>** (age: 3d) — [open](<permalink-or-webLink>)
      Context: <one-line summary of what they need>
      Suggested reply: "<draft text>"
    ```
-5. Reply in chat with a short summary: counts flagged by source, and the
+6. Reply in chat with a short summary: counts flagged by source, and the
    report file path.
 
 ## Error handling

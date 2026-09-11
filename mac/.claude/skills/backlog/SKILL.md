@@ -14,10 +14,13 @@ any session can append to it at any time with no structure required at
 capture time. This skill imposes structure only at triage time.
 
 ## Procedure
-1. Read `~/backlog.md`.
+1. Read `~/backlog.md`, noting the **exact line number** of each entry —
+   this is the only real, live target a not-yet-promoted idea has, so it
+   must survive into the report as a per-item link.
 2. Categorize each entry as **idea**, **bug**, or **task**.
 3. Dedupe near-identical entries (same underlying request worded
-   differently) — note which lines were merged.
+   differently) — note which lines were merged (keep the earliest line
+   number as the link target for a merged entry).
 4. For each entry, flag it **ready** (concrete, scoped, actionable as
    written) or **raw** (still needs thinking-through before it's actionable).
 5. For every **ready** entry, draft a proposed Workfront task/issue (title
@@ -29,8 +32,17 @@ capture time. This skill imposes structure only at triage time.
    `~/.claude/skills/backlog/reports/YYYY-MM-DD.md` (today's
    date; **overwrite** if it already exists), with a `## Categorized`
    section (all entries, category + dedupe notes) and a `## Ready to
-   promote` section (anchor `#ready`) listing each proposed
-   title/description pair awaiting approval.
+   promote` section listing each proposed title/description pair awaiting
+   approval. **Every entry in both sections must link to its source
+   line** in `~/backlog.md`, using a plain absolute path with a
+   line-number fragment (this renderer does not resolve heading-slug
+   anchors like `#ready` — only `path#L<line>` links actually jump), e.g.
+   `[source](/Users/sammefford/backlog.md#L9)`. Do not add a heading
+   anchor to the `## Ready to promote` heading itself — it doesn't
+   resolve in this renderer, and nothing should be linking into this
+   report file anyway (see `/triage`, which links only to real external
+   sources or this same `backlog.md#L<line>` target, never into this
+   report).
 7. Reply in chat with a short summary: counts by category, how many are
    ready to promote, and the report file path.
 

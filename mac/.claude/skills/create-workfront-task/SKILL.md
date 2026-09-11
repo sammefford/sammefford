@@ -43,8 +43,10 @@ where the work actually is, not stale habit from a repo you've since moved off o
 
 | Repo (cwd) | Project | Tag |
 |---|---|---|
-| `mcp-eval-app` | Run Eval Tests (`https://experience.adobe.com/#/@adobeinternalworkfront/so:hub-Hub/workfront/project/6a66359b0000042c21ac0f735a9237b8`) | `[mcp-eval-app]` |
+| `mcp-eval-app` | [Enterprise Context] Add context tests, tools, and observability into MCP Evals (https://hub.workfront.com/project/6a98622000005f8a97c7598457042d93) | `[mcp-eval-app]` |
 | `renzler-service` | Renzler-Service (`https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a8caaa80000700fdf61f747b995d4e4`) | `[renzler-service]` |
+| `workfront-mcp-service` | 2026 Q3 Workfront API MCP Framework (https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a5fd75e000077a590cdda45b2e67bb0) | `workfront-mcp` |
+| `enterprise-context` | Build the Testing Framework That Proves Enterprise Context Works (1) (https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a66361d00000421ba3d40a1dbcecc52) | `enterprise-context` |
 
 Not in the table: fall back to the normal Project/Tag rules in this skill — ask if unclear
 rather than guessing a new mapping. If you're working in a repo that used to route to a

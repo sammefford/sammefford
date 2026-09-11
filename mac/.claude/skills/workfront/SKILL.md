@@ -34,8 +34,11 @@ next-action rules — kept separate so it can be tweaked independently.
    `~/.claude/skills/workfront/reports/YYYY-MM-DD.md` (today's date;
    **overwrite** if it already exists), ranked list, each item showing its
    Workfront `url` deep link, priority, due date, and recommended action
-   with reasoning. Give each item a stable anchor (e.g.
-   `#task-<id-or-slug>`).
+   with reasoning. Do **not** add heading-anchor tags like
+   `{#task-<id>}` — this renderer doesn't resolve heading-slug anchors,
+   and they're unneeded anyway: any consumer (including `/triage`) that
+   needs a clickable link to a specific item should link directly to that
+   item's real Workfront `url`, not to a spot in this file.
 6. Reply in chat with a short summary: item count, how many overdue, and
    the report file path.
 
