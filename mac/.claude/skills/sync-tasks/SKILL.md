@@ -19,7 +19,7 @@ each run so the file always reflects current state.
 
 1. Get the current user via `mcp__workfront-hub__insights_get_current_user` → `user_id`.
 2. Call `mcp__workfront-hub__insights_find_workfront_data` with:
-   - `field_paths`: `task.task_name`, `task.task_status`,
+   - `field_paths`: `task.task_ID`, `task.task_name`, `task.task_status`,
      `task.task_plannedCompletionDate` (sort asc, index 0),
      `task.task_project.project.project_name`
    - `condition`: AND of
@@ -27,9 +27,25 @@ each run so the file always reflects current state.
      - `{fieldId: "task.task_status", operator: "equatesWith", values: ["NEW", "INP"]}`
        (this maps every status whose category is New or In Progress —
        covers custom statuses too, not just the literal codes NEW/INP)
-   - `limit: 100`
+   - `limit: 100` (the tool's schema caps `limit` at 100 — passing a higher
+     value errors, so getting up to 200 tasks means paginating, not raising
+     this number)
    This is the verified working query — don't re-derive field paths from
    scratch each run.
+   - **Pagination to 200:** the tool has no offset/page parameter. If the
+     first call's `totalCount` is greater than the number of rows returned
+     (i.e. more than 100 open tasks exist), collect the `task.task_ID`
+     values from that first batch and issue a second call with the same
+     `field_paths`/`condition` plus one more AND'd condition —
+     `{fieldId: "task.task_ID", operator: "nin", values: [<first batch's task IDs>]}`
+     — and `limit: 100` again, to get the next up-to-100 rows. Merge both
+     batches **and dedupe by `task.task_ID`** before sorting/writing —
+     `totalCount` can exceed the true number of distinct tasks (a join
+     fan-out can return the same task multiple times), so a second-page
+     row count lower than expected is normal, not a bug. Stop after two
+     calls even if `totalCount` still implies more remain post-dedupe —
+     note the excess in the brief's summary rather than fetching further
+     pages.
 3. Results already come back with markdown links embedded in the
    `task.task_name` and `task.task_project...project_name` values
    (`[label](url)`) — use them as-is, don't strip or rebuild them.
