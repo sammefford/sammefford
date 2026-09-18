@@ -25,7 +25,7 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.cursor/skills/change-logging/scripts/snapshot-config.sh ~/.zshrc "Short reason"
 ```
 
-4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the edited file there after making changes. Preserve the home-relative path under `mac/`:
+4. If the config belongs in the user's dotfiles repo and `/Users/sammefford/projects/sammefford/mac` exists, mirror the edited file there after making changes. Preserve the home-relative path under `mac/`. Locally created skills (any new `SKILL.md` under `~/.claude/skills/` or `~/.cursor/skills/`, including their supporting files) always get mirrored, even if that skill has no prior mirror in `mac/` yet — don't skip mirroring just because it isn't already tracked there:
 
 ```text
 ~/.zshrc                                              -> /Users/sammefford/projects/sammefford/mac/.zshrc
@@ -33,6 +33,21 @@ If wrapping would make the approval less clear, run the real command directly an
 ~/.claude/skills/change-logging/SKILL.md              -> /Users/sammefford/projects/sammefford/mac/.claude/skills/change-logging/SKILL.md
 ~/.cursor/skills/change-logging/SKILL.md              -> /Users/sammefford/projects/sammefford/mac/.cursor/skills/change-logging/SKILL.md
 ~/.local/bin/tool-name                                -> /Users/sammefford/projects/sammefford/mac/.local/bin/tool-name
+```
+
+Project-scoped skills (a `SKILL.md` under `<repo>/.claude/skills/` or
+`<repo>/.cursor/skills/` inside a project directory, not `~/.claude` or
+`~/.cursor`) also always get mirrored, including their supporting files —
+these directories are typically gitignored inside the project repo itself
+(check `git check-ignore`), so the `mac/` mirror is their only tracked copy.
+Mirror under `mac/dev/<repo-name>/` (or `mac/projects/<repo-name>/`,
+matching whichever root — `~/dev/` or `~/projects/` — the repo actually
+lives under), preserving the repo-relative `.claude/skills/...` or
+`.cursor/skills/...` path:
+
+```text
+~/dev/mcp-eval-app/.claude/skills/tools-qa-run-sync/SKILL.md      -> /Users/sammefford/projects/sammefford/mac/dev/mcp-eval-app/.claude/skills/tools-qa-run-sync/SKILL.md
+~/dev/renzler-service/.claude/skills/closing-a-session/SKILL.md  -> /Users/sammefford/projects/sammefford/mac/dev/renzler-service/.claude/skills/closing-a-session/SKILL.md
 ```
 
 5. After an important persistent change, record a short note:
