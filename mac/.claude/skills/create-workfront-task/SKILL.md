@@ -27,26 +27,48 @@ Named other person: resolve ID via `insights_find_id_by_name` (entity `user`) or
 
 ## 2. Project
 
+**Source of truth: `/Users/sammefford/projects/hub/projects_for_tasks.md`.** It's the
+maintained, validity-checked project map (refreshed by the `hub-project-discovery` skill,
+which also keeps a durable "Excluded projects" table of projects rejected for stale/terminal
+status). Read it before routing — the table below is only a cwd shortcut into it, and if the
+two ever disagree, `projects_for_tasks.md` wins and the row below is stale and must be fixed
+(or removed) in the same turn you notice the mismatch.
+
 - **Named shared initiative**: resolve via `insights_find_id_by_name` (entity `project`).
 - **Invoked from a repo with a mapped project** (see Repo-aware routing below): use that
-  project — it beats the personal-project fallback.
+  project — it beats the personal-project fallback. Before relying on it, confirm the mapped
+  project still appears as a currently-valid entry in `projects_for_tasks.md`; if it's absent
+  or listed there as excluded/superseded, don't use the table row — fall through to the file's
+  categories (or its Fallback project) instead.
 - **No named project and no repo mapping**: use the *assignee's* auto-created personal
   project, `"<Full Name>'s Tasks"` — not the requester's.
 
-Ask rather than guess if unclear.
+Ask rather than guess if unclear. If a write fails (permissions, project not found), don't
+silently retry against another hardcoded fallback in this file — that's how a task can end up
+on a stale/excluded project (it happened: a rejected write here once fell back to the
+`enterprise-context` row below, which pointed at a project `hub-project-discovery` had already
+excluded). Re-check `projects_for_tasks.md` first, then ask the user.
 
 ### Repo-aware routing
 
 When the working directory is inside one of these repos, default to its mapped project and
 tag instead of the personal-tasks fallback — the goal is that where a task gets filed follows
-where the work actually is, not stale habit from a repo you've since moved off of:
+where the work actually is, not stale habit from a repo you've since moved off of. Every row
+here must correspond to a currently-valid project in `projects_for_tasks.md` — do not add a
+repo mapping to a project that file doesn't list as valid.
 
 | Repo (cwd) | Project | Tag |
 |---|---|---|
 | `mcp-eval-app` | [Enterprise Context] Add context tests, tools, and observability into MCP Evals (https://hub.workfront.com/project/6a98622000005f8a97c7598457042d93) | `[mcp-eval-app]` |
+| `enterprise-context` | [Enterprise Context] Add context tests, tools, and observability into MCP Evals (https://hub.workfront.com/project/6a98622000005f8a97c7598457042d93) | `enterprise-context` |
 | `renzler-service` | Renzler-Service (`https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a8caaa80000700fdf61f747b995d4e4`) | `[renzler-service]` |
-| `workfront-mcp-service` | 2026 Q3 Workfront API MCP Framework (https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a5fd75e000077a590cdda45b2e67bb0) | `workfront-mcp` |
-| `enterprise-context` | Build the Testing Framework That Proves Enterprise Context Works (1) (https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a66361d00000421ba3d40a1dbcecc52) | `enterprise-context` |
+
+Confirmed by the user 2026-09-20: `6a98622000005f8a97c7598457042d93` is the current project for
+both `mcp-eval-app` and `enterprise-context` repo work (and for Matt Newman / Jessie He — see
+below), replacing the two stale rows previously removed here (`workfront-mcp-service` →
+`6a5fd75e000077a590cdda45b2e67bb0`, old `enterprise-context` → `6a66361d00000421ba3d40a1dbcecc52`,
+both excluded per `hub-project-discovery`'s Excluded projects table). `workfront-mcp-service`
+still has no validated replacement; treat it as "not in the table" below.
 
 Not in the table: fall back to the normal Project/Tag rules in this skill — ask if unclear
 rather than guessing a new mapping. If you're working in a repo that used to route to a
@@ -55,7 +77,7 @@ different tag (e.g. old `[renzler]`/`[renzler-service]`-tagged tasks from before
 
 ### Jessie He / Matt Newman routing
 
-Both work outside renzler now — never reference renzler (paths, case names, harness internals) in their tasks. Route both to project **`[Enterprise Context] Business Context MCP — Workfront Planning`** (`https://experience.adobe.com/#/@6AD033CF62197E1C0A495FDD@AdobeOrg/so:hub-Hub/workfront/project/6a2c62980002b3fdf3d9ed2ebb3e931d`) — where the bulk of each of their current enterprise-context tasks already live.
+Both work outside renzler now — never reference renzler (paths, case names, harness internals) in their tasks. Route both to project **[Enterprise Context] Add context tests, tools, and observability into MCP Evals** (`https://hub.workfront.com/project/6a98622000005f8a97c7598457042d93`) — confirmed by the user 2026-09-20, same project as the `mcp-eval-app`/`enterprise-context` repo rows above. (Previously routed to `6a2c62980002b3fdf3d9ed2ebb3e931d`, which rejected the write with "insufficient access" and is superseded — don't use that ID.)
 
 - **Jessie He** — tenant-fixture / enterprise-context-instance-data tasks. Link description to the real object(s) via the `url` the enterprise-context MCP tools return — never hand-build, never substitute a renzler path.
 - **Matt Newman** — prompt wording / case granularity / setup-teardown tasks. Link to matching test case(s) in the `mcp-eval-app` GitLab project, where he now works.
@@ -166,3 +188,8 @@ Not a substitute for `/sync-tasks` (source of truth for completions/reassignment
 - Local disk path pasted in place of an attached document.
 - Renzler referenced in a Jessie He / Matt Newman task.
 - `plannedCompletionDate` set out of habit rather than left unset.
+- Using a Repo-aware routing table entry without checking it's still valid in
+  `projects_for_tasks.md` — the table can go stale (a project gets excluded there) without
+  anyone updating this file.
+- Falling back to another hardcoded project in this file after a write fails, instead of
+  re-checking `projects_for_tasks.md` or asking.
