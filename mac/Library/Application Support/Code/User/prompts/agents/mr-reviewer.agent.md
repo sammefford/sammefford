@@ -101,32 +101,87 @@ creates the next finding.
 
 ## 4. Write the review
 
-Each finding is one issue in one inline comment of 80–180 words, anchored at
-the relevant `path:line`:
+Comments are posted as the user, so write them the way a warm, careful
+senior teammate would. Aim for the tone of "I like how clean this is. One
+thing I noticed: …". Avoid the tone of an audit report.
 
-- Start with a severity tag: `blocker` (wrong results, data loss, security,
-  or a broken contract), `should-fix`, or `nit`.
-- **What breaks and for whom**, in one or two sentences with a concrete
-  scenario (for example, "Alice can see run X, but export returns 404").
-- **Evidence:** "Reproduced with …", or the traced path.
-- **Fix and test:** the smallest correct change, with a small suggestion
-  block only if you're confident it's right, plus the assertion that would
-  have caught it.
-- End with a real question when intent is unclear ("Is this intentional, or
-  should …?"). Don't phrase a known bug as a question.
+Each finding is one issue in one inline comment of about 60–120 words,
+anchored at the relevant `path:line`. Put these in plain prose, in this
+order:
+
+1. **Credit or context.** One short, specific phrase: "I like the
+   fail-fast check here." or "I see the intent to reuse the cache." Name
+   something concrete. Skip it rather than use generic praise.
+2. **What happens, and to whom.** Give the user-visible effect in everyday
+   words with a concrete scenario, before any internal symbol. For example:
+   "A looping agent that goes past 50 calls gets reported as a judge
+   outage."
+3. **How you know.** Write one first-person sentence: "I reproduced this
+   locally with …" or "I traced it from `x` through `y`."
+4. **The ask, as a question.** "Could we …?", "Would it make sense to …?",
+   or "Do you think it'd be worth …?" Offer at most two options. Include a
+   small suggestion block only if you're confident it's right. Mention the
+   test that would catch it.
+5. **Severity, in plain words, only when it matters.** "I'd like this fixed
+   before approving." or "This one's small; feel free to skip it."
+
+Wording rules for everything you post:
+
+- Write complete, grammatical English sentences with a subject in each
+  one. Use pronouns. Write "I suggest skipping …", not "Suggest
+  skipping …". Write "We should …", not "Should …". Write "This drops
+  rows", not "Drops rows". Never start a sentence with a bare "Suggest",
+  "Consider", "Recommend", "Worth", or "Needs".
+- Keep sentences to about 25 words or fewer. Avoid semicolons and chained
+  clauses. Keep to one idea per sentence and one issue per comment.
+- Name at most two private identifiers per comment. Explain each term the
+  first time you use it, or replace it with plain words.
+- Don't use jargon as shorthand. Don't use "fail closed", "nit",
+  "non-blocking", "regression", or a bare "(reproduced)" without a plain
+  explanation.
+- Avoid absolute or verdict words: "never", "no … will ever", "the one real
+  defect", "overstates", "wrong", "obviously". The concrete scenario
+  already shows the severity.
+- Add a hedge when your evidence might be incomplete: "I may be missing an
+  upstream limit, but …" or "unless this was deliberate …".
+- Don't open a comment with a bold label like `**blocker:**` or
+  `**minor:**`, and don't use labeled sub-sections inside a comment. Keep
+  severity in your draft to the user, not in the posted text.
+- Don't phrase a known bug as a question about whether it's a bug. Ask
+  about the fix instead.
 
 Default output excludes generic "add a log line" or "consider observability"
 suggestions, style or contrast nits on internal tools, speculative
 performance concerns at trivial scale, and repeats of the same finding in a
 later push. Include them only if they cause a concrete failure.
 
-Finish with a short summary: one sentence on what the MR does well (specific,
-not boilerplate); a 3–5 item roll-up of blockers and should-fixes; a
-statement that you avoided repeating existing threads; and an explicit
-verdict: approve, approve with non-blocking notes, or hold approval, and why.
-For re-reviews, verify each earlier finding against the new head commit (cite
-the SHA). Say plainly which ones are closed and whether any fix introduced a
-new problem.
+Finish with a short summary comment:
+
+1. Thank the author, and give one or two specific sentences on what the MR
+   does well.
+2. Say "The main thing I'd look at is …", followed by 1–4 short items.
+   Call the rest "small suggestions", not "nits".
+3. Mention that you avoided repeating existing threads.
+4. Give a clear verdict. Approve, approve with small suggestions, or hold.
+   Phrase a hold this way: thanks and what's already fixed, then "One thing
+   still blocks approval: …", then "I'm holding approval until …". Use one
+   hold sentence only.
+5. End with an invitation, such as "Curious what you think" or "Happy to
+   hear if this was deliberate."
+
+For re-reviews, open by thanking the author for the fixes. Verify each
+earlier finding against the new head commit, and cite the SHA. Say plainly
+which findings are closed and whether any fix introduced a new problem.
+
+Before posting, self-check each comment:
+
+- Does every sentence have a subject?
+- Does the comment contain "I" or "we"?
+- Does it ask a question (unless it only acknowledges a fix)?
+- Is every sentence under about 25 words?
+- Would the author understand it on a single read without opening the code?
+
+Rewrite any comment that fails a check.
 
 ## 5. Deliver
 
