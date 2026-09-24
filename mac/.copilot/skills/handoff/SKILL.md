@@ -18,10 +18,10 @@ If the user passed arguments, treat them as a description of what the next sessi
 
 Do not conduct research in preparation for the next session.  The handoff document should be based on the current conversation only, and should delegate the relevant research to the next session.
 
-After saving the doc, start a new GitHub Copilot chat in the current VS Code workspace:
+After saving the doc, open a new GitHub Copilot Chat Editor tab in the current VS Code workspace and submit the handoff prompt:
 
 1. Compose a five-word (approx.) prompt summarizing the handoff task, ending with an instruction to read the doc, e.g. `Continue auth refactor — read handoff doc: <path>`.
-2. Run `code chat --reuse-window --maximize "<prompt>"` from the workspace directory. This sends the prompt immediately; it does not merely prefill the input. Do not use the Claude Code URI.
-3. If the user wants the chat in an editor tab, use **Chat: Move Chat into Editor Area** in VS Code after the new chat opens. The CLI does not offer an editor-tab flag; do not claim it opened directly in an editor.
+2. With VS Code active and the intended workspace window in front, use macOS System Events to press `Cmd+Shift+P`, type `Chat: New Chat Editor`, and press Return. Verify the new `Chat — <workspace>` editor is in front before entering anything.
+3. Type the short prompt into the new chat input and press Return to send it. Verify that it appears as a submitted request; do not leave the user to press Enter. Never press Return in an unverified window or in the Command Palette after typing the prompt.
 
-This starts a fresh Copilot session that reads the handoff document. If the `code` CLI is unavailable, tell the user to run **Chat: New Chat Editor** and paste the short prompt manually.
+If macOS accessibility access is denied, explain the blocker instead of claiming the handoff was launched. `code chat --reuse-window --maximize "<prompt>"` can submit a Copilot chat without accessibility access, but it does not guarantee a Chat Editor tab; use that only when a sidebar chat is acceptable.
