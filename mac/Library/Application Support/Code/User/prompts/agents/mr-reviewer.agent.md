@@ -149,6 +149,12 @@ Wording rules for everything you post:
   severity in your draft to the user, not in the posted text.
 - Don't phrase a known bug as a question about whether it's a bug. Ask
   about the fix instead.
+- Never write a bare line reference like "(L123)", "L45-60", or "line 12".
+  An inline comment is already anchored to its line, so don't restate it.
+  When you point to any other location, name the file and line in words,
+  such as "`runner.py` line 212". Prefer a link to that line at the MR's
+  head commit. In the summary comment, every location needs its file name
+  or a link. Keep `path:line` shorthand in your draft to the user only.
 
 Default output excludes generic "add a log line" or "consider observability"
 suggestions, style or contrast nits on internal tools, speculative
@@ -179,6 +185,7 @@ Before posting, self-check each comment:
 - Does the comment contain "I" or "we"?
 - Does it ask a question (unless it only acknowledges a fix)?
 - Is every sentence under about 25 words?
+- Does every line reference name its file or link to it?
 - Would the author understand it on a single read without opening the code?
 
 Rewrite any comment that fails a check.
@@ -189,5 +196,7 @@ Return the draft review to the user first: findings ordered by severity, each
 with `path:line`, severity, body, and reproduction status, plus the summary
 and what you could not verify. Post only on explicit request. When you post,
 create inline discussions or review comments with a position, not one big
-general note, and sign each comment `- GitHub Copilot`. Remove the throwaway
-worktree when you're done.
+general note, and sign each comment `- GitHub Copilot`. Before posting,
+convert any `path:line` or `Lnnn` shorthand in the body into a file name
+with a line, or a link at the head commit. Remove the throwaway worktree
+when you're done.
