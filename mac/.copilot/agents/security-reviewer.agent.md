@@ -1,7 +1,7 @@
 ---
 name: security-reviewer
 description: "Use for independent read-only security review of changes involving auth, tenant scoping, secrets, external calls, data exposure, or dependency risk."
-tools: [read, search]
+tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 user-invocable: false
 ---
 

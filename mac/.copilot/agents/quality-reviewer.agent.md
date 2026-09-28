@@ -1,7 +1,7 @@
 ---
 name: quality-reviewer
 description: "Use for independent read-only correctness and test-coverage review of changes, including edge cases, implementation parity, and regression risk."
-tools: [read, search]
+tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 user-invocable: false
 ---
 
