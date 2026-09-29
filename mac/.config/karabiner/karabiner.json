@@ -2439,7 +2439,8 @@
                                             "^com\\.vmware\\.proxyApp\\.",
                                             "^com\\.parallels\\.winapp\\.",
                                             "^com\\.utmapp\\.UTM$",
-                                            "^org\\.vim\\.MacVim$"
+                                            "^org\\.vim\\.MacVim$",
+                                            "^com\\.microsoft\\.VSCode$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
