@@ -2440,7 +2440,8 @@
                                             "^com\\.parallels\\.winapp\\.",
                                             "^com\\.utmapp\\.UTM$",
                                             "^org\\.vim\\.MacVim$",
-                                            "^com\\.microsoft\\.VSCode$"
+                                            "^com\\.microsoft\\.VSCode$",
+                                            "^com\\.tinyspeck\\.slackmacgap$"
                                         ],
                                         "type": "frontmost_application_unless"
                                     }
