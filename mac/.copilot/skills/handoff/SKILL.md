@@ -18,10 +18,14 @@ If the user passed arguments, treat them as a description of what the next sessi
 
 Do not conduct research in preparation for the next session.  The handoff document should be based on the current conversation only, and should delegate the relevant research to the next session.
 
-After saving the doc, open a new GitHub Copilot Chat Editor tab in the current VS Code workspace and submit the handoff prompt:
+After saving the doc, delegate opening and submitting a new GitHub Copilot Chat Editor to a subagent using `runSubagent` with `model: "Claude Sonnet 5.5 (copilot)"`. This model requirement applies to the launcher subagent, NOT the new chat. Leave the new chat's model unchanged unless the user separately requests a specific model. If the launcher model is unavailable, report the blocker rather than silently substituting another model.
 
-1. Compose a five-word (approx.) prompt summarizing the handoff task, ending with an instruction to read the doc, e.g. `Continue auth refactor — read handoff doc: <path>`.
-2. With VS Code active and the intended workspace window in front, use macOS System Events to press `Cmd+Shift+P`, type `Chat: New Chat Editor`, and press Return. Verify the new `Chat — <workspace>` editor is in front before entering anything.
-3. Type the short prompt into the new chat input and press Return to send it. Verify that it appears as a submitted request; do not leave the user to press Enter. Never press Return in an unverified window or in the Command Palette after typing the prompt.
+Give the launcher subagent the workspace path, saved handoff path, and a short prompt summarizing the task and instructing it to read the doc, e.g. `Continue auth refactor; read handoff doc: <path>`. Scope it to launching the chat only: no research, configuration changes, or edits to the handoff or workspace files. Require it to:
 
-If macOS accessibility access is denied, explain the blocker instead of claiming the handoff was launched. `code chat --reuse-window --maximize "<prompt>"` can submit a Copilot chat without accessibility access, but it does not guarantee a Chat Editor tab; use that only when a sidebar chat is acceptable.
+1. Activate VS Code and verify the intended workspace window is in front.
+2. Use macOS System Events to press `Cmd+Shift+P`, type `Chat: New Chat Editor`, and press Return. Verify the new `Chat — <workspace>` editor is in front before entering anything.
+3. Leave the new chat's model unchanged. Do not open the model picker or require verification of Claude Sonnet 5.5 in the new chat.
+4. Type the short prompt into the verified chat input and press Return to send it. Never press Return in an unverified window or in the Command Palette after typing the prompt.
+5. Verify submission through the visible submitted request or the new session transcript's exact `user.message`. An empty editor or unsent draft is not success. Return verification evidence and any blocker to the parent agent.
+
+If macOS accessibility access is denied, explain the blocker instead of claiming the handoff was launched. `code chat --reuse-window --maximize "<prompt>"` can submit a Copilot chat without accessibility access, but it does not guarantee a Chat Editor tab; use that only when a sidebar chat is acceptable. Do not impose a destination-chat model requirement.
