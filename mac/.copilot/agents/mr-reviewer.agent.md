@@ -1,6 +1,7 @@
 ---
 name: mr-reviewer
 description: "Use to review a GitLab merge request, GitHub pull request, or local branch diff in any repo for real defects: contract/backend parity, ownership and visibility scoping, silent truncation, tests that cannot fail, unwired code paths, spec drift, and untrusted-content boundaries. Drafts findings; posts only when asked."
+reasoning-effort: high
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 agents: [heavy-reasoner]
 ---

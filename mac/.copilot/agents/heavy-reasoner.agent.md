@@ -1,9 +1,9 @@
 ---
 name: heavy-reasoner
 description: Use for complex reasoning, architectural refactoring, and multi-step problem solving.
-model: gpt-6-sol
+model: gpt-6.1-sol
 modelPolicy: required
-reasoningEffort: high
+reasoning-effort: high
 include-custom-instructions: true
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 ---

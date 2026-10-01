@@ -1,6 +1,7 @@
 ---
 name: spec-reviewer
 description: "Use for independent read-only review of changes against the current project's prescriptive docs, contracts, data models, and repository instructions."
+reasoning-effort: medium
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 user-invocable: false
 ---

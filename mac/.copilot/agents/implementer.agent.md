@@ -1,6 +1,7 @@
 ---
 name: implementer
 description: "Use to implement a bounded feature or bug fix in the current project with focused tests and documented-spec alignment; report results to the delivery lead."
+reasoning-effort: medium
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 ---
 

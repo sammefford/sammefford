@@ -1,6 +1,7 @@
 ---
 name: code-investigator
 description: "Use this agent for read-only exploration of codebases under ~/dev or ~/projects, including architecture, implementation details, dependencies, data flow, API usage, configuration, and code patterns."
+reasoning-effort: medium
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 ---
 

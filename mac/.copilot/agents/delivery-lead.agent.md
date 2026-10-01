@@ -1,6 +1,7 @@
 ---
 name: delivery-lead
 description: "Use for multi-file features, risky fixes, or coordinated implementation with independent spec, security, and quality review across projects."
+reasoning-effort: medium
 agents: [implementer, spec-reviewer, security-reviewer, quality-reviewer, heavy-reasoner]
 tools: [vscode, execute, read, agent, edit, search, 'adobe-slack/*', 'fluffyjaws/*', 'io.github.chromedevtools/chrome-devtools-mcp/*', browser, todo]
 ---
