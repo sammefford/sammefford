@@ -24,8 +24,7 @@ Give the launcher subagent the workspace path, saved handoff path, and a short p
 
 1. Activate VS Code and verify the intended workspace window is in front.
 2. Use macOS System Events to press `Cmd+Shift+P`, type `Chat: New Chat Editor`, and press Return. Verify the new `Chat — <workspace>` editor is in front before entering anything.
-3. Leave the new chat's model unchanged. Do not open the model picker or require verification of Claude Sonnet 5.5 in the new chat.
-4. Type the short prompt into the verified chat input and press Return to send it. Never press Return in an unverified window or in the Command Palette after typing the prompt.
-5. Verify submission through the visible submitted request or the new session transcript's exact `user.message`. An empty editor or unsent draft is not success. Return verification evidence and any blocker to the parent agent.
+3. Type the short prompt into the verified chat input and press Return to send it. Never press Return in an unverified window or in the Command Palette after typing the prompt.
+4. Verify submission through the visible submitted request or the new session transcript's exact `user.message`. An empty editor or unsent draft is not success. Return verification evidence and any blocker to the parent agent.
 
-If macOS accessibility access is denied, explain the blocker instead of claiming the handoff was launched. `code chat --reuse-window --maximize "<prompt>"` can submit a Copilot chat without accessibility access, but it does not guarantee a Chat Editor tab; use that only when a sidebar chat is acceptable. Do not impose a destination-chat model requirement.
+If macOS accessibility access is denied, explain the blocker instead of claiming the handoff was launched. `code chat --reuse-window --maximize "<prompt>"` can submit a Copilot chat without accessibility access, but it does not guarantee a Chat Editor tab; use that only when a sidebar chat is acceptable
