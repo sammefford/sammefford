@@ -1,7 +1,7 @@
 ---
 name: workfront-service-graph-investigation
-description: 'Use when investigating a Workfront incident across services, finding the owning team or source/deployment repository, tracing request middleware or dependency boundaries, or consulting ~/dev/workfront-service-graph before proposing a fix. Guides read-only ownership routing and falsifiable local checks; not package upgrades, deployments, or proof of incident causality.'
-argument-hint: 'Incident anchor: endpoint, service, namespace, image, error, or trace; environment and UTC time window'
+description: 'Use when evaluating cross-repo blast radius of change, investigating an incident, finding the source/deployment repository, tracing request middleware or dependency boundaries, or consulting ~/dev/workfront-service-graph before proposing a fix. Guides evaluation of cross-service request routing and falsifiable local checks; not package upgrades, deployments, or proof of incident causality.'
+argument-hint: 'Incident, blast radius, endpoint, cross-service, or trace'
 user-invocable: true
 ---
 
